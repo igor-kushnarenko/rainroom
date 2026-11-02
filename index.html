@@ -1,0 +1,34 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width,initial-scale=1" />
+<title>Дождь за окном</title>
+<link rel="icon" href="./favicon.svg" type="image/svg+xml" />
+<link rel="stylesheet" href="./src/style.css" />
+</head>
+<body>
+<canvas id="c"></canvas>
+<div id="overlay"><div class="hint">Нажмите любую кнопку или коснитесь экрана — включится звук.<br><small>Клик по лампе, фонарю, радио или ноутбуку включает их · колесо над радио — станции, над окном — сила дождя · меню — круглая кнопка справа внизу</small></div></div>
+<div id="toast" class="glass"></div>
+<button id="menubtn" type="button" class="glass" aria-label="Меню" aria-expanded="false"><svg viewBox="0 0 16 16"><path d="M3 4.5h10M3 8h10M3 11.5h10" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg></button>
+<div id="hud" class="glass closed">
+  <div class="row" id="devrow"></div>
+  <div class="row">
+    <button id="allon" type="button"><span>Всё вкл</span></button>
+    <button id="alloff" type="button"><span>Всё выкл</span></button>
+    <button id="thunderbtn" type="button" class="icon" aria-pressed="true"><span class="led"></span><span>Гроза</span></button>
+    <button id="weatherbtn" type="button" class="icon" aria-pressed="true"><span class="led"></span><span>Погода</span></button>
+  </div>
+  <div class="row">
+    <button id="volbtn" type="button" class="icon" aria-expanded="false"><span>Громкость</span></button>
+    <button id="mute" type="button" class="icon"><span>Звук</span></button>
+    <button id="fs" type="button" class="icon" aria-label="На весь экран"><svg viewBox="0 0 16 16"><path d="M2 6V2h4M10 2h4v4M14 10v4h-4M6 14H2v-4" stroke="currentColor" fill="none" stroke-width="1.6"/></svg></button>
+  </div>
+  <label class="rainlvl"><span>Сила дождя</span><input id="rainlvl" type="range" min="0" max="100" step="5" aria-label="Сила дождя"></label>
+  <label class="radiovol rainlvl"><button id="stprev" type="button" class="icon st" aria-label="Предыдущая станция">‹</button><span id="station" class="station">—</span><button id="stnext" type="button" class="icon st" aria-label="Следующая станция">›</button><input id="radiovol" type="range" min="0" max="100" step="5" aria-label="Громкость радио"></label>
+  <div id="volumes" hidden></div>
+</div>
+<script type="module" src="./src/main.js"></script>
+</body>
+</html>

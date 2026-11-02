@@ -1,0 +1,182 @@
+[
+ {
+  "id": "83dcfac4-b3c3-4731-afc1-a80dd271dffa",
+  "name": "Radio Armisa",
+  "url": "https://onair.armisa.it/listen/armisa/radio.mp3",
+  "tags": "anni 80,anni 90,balera,dance,folk,italiana,liscio,oldies,pop,popolare,tradizione",
+  "country": "IT",
+  "codec": "MP3",
+  "bitrate": 0
+ },
+ {
+  "id": "d1a54d2e-623e-4970-ab11-35f7b56c5ec3",
+  "name": "Classic Vinyl HD",
+  "url": "https://icecast.walmradio.com:8443/classic",
+  "tags": "1930,1940,1950,1960,beautiful music,big band,classic hits,crooners,easy listening,jazz,lounge,oldies,swing",
+  "country": "US",
+  "codec": "MP3",
+  "bitrate": 320
+ },
+ {
+  "id": "b6fa9d93-97bf-48b0-8624-e8f84b817823",
+  "name": "Anon.FM",
+  "url": "https://icecast.anon.fm/radio",
+  "tags": "anime,dnb,downtempo,experimental,jazz,psychedelic,rock,trance",
+  "country": "RU",
+  "codec": "MP3",
+  "bitrate": 192
+ },
+ {
+  "id": "962cc6df-0601-11e8-ae97-52543be04c81",
+  "name": "Dance Wave! | MP3",
+  "url": "https://dancewave.online/dance.mp3",
+  "tags": "club dance electronic house trance",
+  "country": "",
+  "codec": "MP3",
+  "bitrate": 128
+ },
+ {
+  "id": "ea8059be-d119-4de3-b27b-0d9bd6aedb17",
+  "name": "Adroit Jazz Underground",
+  "url": "https://icecast.walmradio.com:8443/jazz",
+  "tags": "bebop,big band,cool jazz,free jazz,fusion,hard bop,modern",
+  "country": "US",
+  "codec": "MP3",
+  "bitrate": 320
+ },
+ {
+  "id": "6eff3484-4ab4-4d36-bf27-9172c5aac15c",
+  "name": "Christmas Vinyl HD",
+  "url": "https://icecast.walmradio.com:8443/christmas",
+  "tags": "christmas,easy listening,holiday,vintage,vinyl",
+  "country": "US",
+  "codec": "MP3",
+  "bitrate": 320
+ },
+ {
+  "id": "313046e3-b203-4b9d-bc3e-393da7d97126",
+  "name": "WALM - Old Time Radio",
+  "url": "https://icecast.walmradio.com:8443/otr",
+  "tags": "78rpm,classic,comedy,drama,old time radio,otr,vintage",
+  "country": "US",
+  "codec": "MP3",
+  "bitrate": 64
+ },
+ {
+  "id": "64bb1467-2585-4454-a96f-34cfbc864d41",
+  "name": "WALM 2 HD",
+  "url": "https://icecast.walmradio.com:8443/walm2",
+  "tags": "choral,christian,classical music,hymns,orchestral,talk",
+  "country": "US",
+  "codec": "MP3",
+  "bitrate": 320
+ },
+ {
+  "id": "af6f51b1-0ca9-11ea-a87e-52543be04c81",
+  "name": "Intense Radio - We love Dance 256K",
+  "url": "https://secure.live-streams.nl/main",
+  "tags": "clubhouse,dance,electronic,house,melodic,techno,trance",
+  "country": "NL",
+  "codec": "MP3",
+  "bitrate": 256
+ },
+ {
+  "id": "348dfc58-ce8c-413b-b264-0384f816344b",
+  "name": "WALM HD",
+  "url": "https://icecast.walmradio.com:8443/walm",
+  "tags": "christian,christian music,contemporary christian",
+  "country": "US",
+  "codec": "MP3",
+  "bitrate": 320
+ },
+ {
+  "id": "2ce23ee2-95c5-407d-9df8-54c3cdde2825",
+  "name": "Adroit Jazz Underground HD Opus",
+  "url": "https://icecast.walmradio.com:8443/jazz_opus",
+  "tags": "bebop,big band,cool jazz,free jazz,fusion,opus",
+  "country": "US",
+  "codec": "OGG",
+  "bitrate": 192
+ },
+ {
+  "id": "595687e1-9fa0-49d7-8cb7-d6ed63f6d8b3",
+  "name": "Christmas FM Non-stop!",
+  "url": "https://xmas-node1.zip.wf/live.aac",
+  "tags": "christmas,christmas music,holiday music,xmas",
+  "country": "FI",
+  "codec": "AAC",
+  "bitrate": 128
+ },
+ {
+  "id": "6ce8da92-859f-4f96-a5e4-503c1ddfbfbf",
+  "name": "Classic Vinyl HD Opus",
+  "url": "https://icecast.walmradio.com:8443/classic_opus",
+  "tags": "big band,classic hits,easy listening,jazz,lounge,oldies,swing,opus",
+  "country": "US",
+  "codec": "OGG",
+  "bitrate": 192
+ },
+ {
+  "id": "c31a923e-7677-4a80-bd4b-b33c1f4440c7",
+  "name": "Shaiva Lahari",
+  "url": "https://radio.shaivam.org/listen/shaiva-lahari/radio.mp3",
+  "tags": "spirituals",
+  "country": "IN",
+  "codec": "MP3",
+  "bitrate": 128
+ },
+ {
+  "id": "d7f5a497-40ec-11e9-aa55-52543be04c81",
+  "name": "- 0 N - Classic Rock on Radio",
+  "url": "https://0n-classicrock.radionetz.de/0n-classicrock.mp3",
+  "tags": "80s,90s,classic rock,rock",
+  "country": "DE",
+  "codec": "MP3",
+  "bitrate": 128
+ },
+ {
+  "id": "6cddaca1-f2c1-11e8-a471-52543be04c81",
+  "name": "- 0 N - 70s on Radio",
+  "url": "https://0n-70s.radionetz.de/0n-70s.mp3",
+  "tags": "70s,oldies,pop",
+  "country": "DE",
+  "codec": "MP3",
+  "bitrate": 128
+ },
+ {
+  "id": "24e3676a-8de5-474c-8ed2-288fbb66d447",
+  "name": "Christmas Vinyl HD Opus",
+  "url": "https://icecast.walmradio.com:8443/christmas_opus",
+  "tags": "christmas,easy listening,holiday,vintage,vinyl,opus",
+  "country": "US",
+  "codec": "OGG",
+  "bitrate": 192
+ },
+ {
+  "id": "964be8b7-0601-11e8-ae97-52543be04c81",
+  "name": "Dance Wave Retro! | MP3",
+  "url": "https://dancewave.online/retrodance.mp3",
+  "tags": "90s dance",
+  "country": "",
+  "codec": "MP3",
+  "bitrate": 128
+ },
+ {
+  "id": "04407d31-2cc0-11e8-91bf-52543be04c81",
+  "name": "dinamo.fm sleep",
+  "url": "https://channels.dinamo.fm/sleep-mp3",
+  "tags": "ambient,chillout,lullaby,relaxing,sleep,zen",
+  "country": "TR",
+  "codec": "MP3",
+  "bitrate": 320
+ },
+ {
+  "id": "b449c3c0-db5f-4f01-a81e-3bc1c769e188",
+  "name": "West Coast – G-Funk & Hip-Hop",
+  "url": "https://r.bgp.rodeo/listen/west_coast/radio.mp3",
+  "tags": "90s hip hop,g-funk,hip hop,rap",
+  "country": "US",
+  "codec": "MP3",
+  "bitrate": 320
+ }
+]
