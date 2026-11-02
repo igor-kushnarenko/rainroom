@@ -13,3 +13,5 @@ test('громкости и сила дождя ограничены 0..1', () =
 test('rainParams монотонны, звук тихий', () => { let p = rainParams(0);
   for (let l = 0.1; l <= 1.0001; l += 0.1) { const q = rainParams(l); assert.ok(q.drops >= p.drops && q.soundGain >= p.soundGain && q.tickInterval <= p.tickInterval && q.thunderEvery <= p.thunderEvery); p = q; }
   assert.ok(rainParams(1).soundGain <= 0.1); });
+test('капли по стеклу: своя громкость, тихо по умолчанию; частота растёт с дождём', () => { const s = loadSettings(mem()); assert.ok(s.volumes.glass > 0 && s.volumes.glass <= 0.5);
+  assert.ok(rainParams(1).tapRate > rainParams(0.5).tapRate && rainParams(0.5).tapRate > rainParams(0).tapRate); assert.ok(rainParams(1).run > rainParams(0).run); });

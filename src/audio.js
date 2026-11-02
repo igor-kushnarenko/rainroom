@@ -12,7 +12,7 @@ export class Ambience {
     this.master.connect(lim).connect(ctx.destination);
     this.noise = this.makeNoise(4); this.brown = this.makeBrown(6);
     this.bus = {};
-    for (const k of ['rain', 'thunder', 'room', 'fx']) { const g = ctx.createGain(); g.connect(this.master); this.bus[k] = g; }
+    for (const k of ['rain', 'glass', 'thunder', 'room', 'fx']) { const g = ctx.createGain(); g.connect(this.master); this.bus[k] = g; }
     // дождь по стеклу: две полосы шума — шелест (высокая) и мягкий «барабан» (средняя)
     const r1 = ctx.createBufferSource(); r1.buffer = this.noise; r1.loop = true;
     const hp = ctx.createBiquadFilter(); hp.type = 'highpass'; hp.frequency.value = 900;
@@ -34,7 +34,7 @@ export class Ambience {
     this.radioBp = ctx.createBiquadFilter(); this.radioBp.type = 'bandpass'; this.radioBp.frequency.value = 1800; this.radioBp.Q.value = 0.5;
     this.radioHiss = ctx.createGain(); this.radioHiss.gain.value = 0.04;
     st.connect(shp).connect(this.radioBp).connect(this.radioHiss).connect(this.radioOut); st.start();
-    this.nextTick = ctx.currentTime; this.nextRadioPop = ctx.currentTime;
+    this.nextTick = ctx.currentTime; this.nextTap = ctx.currentTime; this.burst = 0; this.nextRadioPop = ctx.currentTime;
     this.applyVolumes();
     this.timer = setInterval(() => this.schedule(), 100);
     if (ctx.state !== 'running') ctx.resume();
@@ -57,7 +57,25 @@ export class Ambience {
   schedule() {
     const ctx = this.ctx, t = ctx.currentTime, R = this.R || rainParams(this.rainLevel);
     while (this.nextTick < t + 0.2) { this.tick(this.nextTick); this.nextTick += -Math.log(1 - Math.random()) * R.tickInterval; }
+    // капли барабанят по стеклу: пуассоновский поток с «порывами» (то гуще, то реже)
+    while (this.nextTap < t + 0.2) {
+      this.tap(this.nextTap);
+      if (Math.random() < 0.02) this.burst = 0.6 + Math.random() * 1.5; this.burst = Math.max(0, this.burst - 0.05);
+      const rate = R.tapRate * (0.6 + 0.8 * Math.random()) * (1 + this.burst * 1.5);
+      this.nextTap += -Math.log(1 - Math.random()) / rate;
+    }
     this.tickRadio(t);
+  }
+  /** Удар капли по стеклу: короткий звонкий «тук» — резонанс стекла + щелчок. */
+  tap(t) {
+    const ctx = this.ctx; t = Math.max(t, ctx.currentTime); const big = Math.random() < 0.15; const amp = (big ? 0.05 : 0.018) * (0.4 + Math.random());
+    const o = ctx.createOscillator(); o.type = 'sine'; const f = (big ? 900 : 1600) + Math.random() * 2600; o.frequency.setValueAtTime(f, t); o.frequency.exponentialRampToValueAtTime(f * 0.82, t + 0.03);
+    const g = ctx.createGain(); g.gain.setValueAtTime(0.0001, t); g.gain.exponentialRampToValueAtTime(amp, t + 0.002); g.gain.exponentialRampToValueAtTime(0.0001, t + (big ? 0.06 : 0.025));
+    const src = ctx.createBufferSource(); src.buffer = this.noise; const bp = ctx.createBiquadFilter(); bp.type = 'bandpass'; bp.frequency.value = 4000 + Math.random() * 3000; bp.Q.value = 2;
+    const g2 = ctx.createGain(); g2.gain.setValueAtTime(amp * 0.8, t); g2.gain.exponentialRampToValueAtTime(0.0001, t + 0.012);
+    const pan = ctx.createStereoPanner?.(); if (pan) pan.pan.value = Math.random() * 1.8 - 0.9; const out = pan || this.bus.glass; if (pan) pan.connect(this.bus.glass);
+    o.connect(g).connect(out); src.connect(bp).connect(g2).connect(out);
+    o.start(t); o.stop(t + 0.08); src.start(t, Math.random() * 3, 0.02);
   }
   tick(t) { // капля по стеклу: короткий глухой «тик»
     const ctx = this.ctx, src = ctx.createBufferSource(); src.buffer = this.noise;

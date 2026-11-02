@@ -79,6 +79,15 @@ H_ = {
   'lamp': hard(lambda d: d.polygon([(1525, 90), (1600, 70), (1660, 120), (1660, 240), (1520, 240)], 255)),
   'lantern': hard(lambda d: (d.rectangle((20, 285, 115, 450), 255), d.rectangle((15, 565, 90, 640), 255))),
 }
+# Растение и кружка в ON-кадре подсвечены слева (фонарь/радио). Лампа справа получает только их правую сторону.
+for (x0, y0, x1, y1) in [(880, 655, 1068, 832), (1075, 722, 1225, 838)]:
+    reg = np.zeros((H, W)); reg[y0:y1, x0:x1] = 1; reg = np.asarray(Image.fromarray((reg * 255).astype(np.uint8)).filter(ImageFilter.GaussianBlur(6)), float) / 255
+    cx = (x0 + x1) / 2; side = np.clip((xx - cx) / ((x1 - x0) / 2), 0, 1) * 0.7   # 0 слева … 0.7 у правого края
+    newlamp = share['lamp'] * side * reg + share['lamp'] * (1 - reg)
+    gain = share['lamp'] * (1 - side) * reg  # снятое с лампы → фонарю и радио пропорционально
+    share['lantern'] = share['lantern'] + gain * 0.55
+    share['radio'] = share['radio'] + gain * 0.45
+    share['lamp'] = newlamp
 for k, m in H_.items():  # предмет-источник: его пиксели только у него (экран ноутбука не светится от лампы)
     for j in share: share[j] = share[j] * (1 - m) + (m if j == k else 0)
 share = {k: v * (1 - gl) for k, v in share.items()}           # стекло рисует свой шейдер
@@ -94,4 +103,7 @@ mask = gl < 0.01
 print('all-on vs ON, mean |diff| (0..255) вне стекла:', round(np.abs(allon - B)[mask].mean(), 2), ' база OFF vs ON:', round(np.abs(A - B)[mask].mean(), 2))
 lamp_on = A + diff * S8['lamp'][..., None]
 scr = (slice(612, 740), slice(1330, 1600))
+for nm, (x0, y0, x1, y1) in [('растение', (880, 655, 1068, 832)), ('кружка', (1075, 722, 1225, 838))]:
+    cx = (x0 + x1) // 2; L_ = np.abs(lamp_on - A)[y0:y1, x0:cx].mean(); R_ = np.abs(lamp_on - A)[y0:y1, cx:x1].mean()
+    print(f'лампа одна: {nm} слева {L_:.1f} / справа {R_:.1f}')
 print('лампа одна: экран ноутбука, среднее отличие от OFF:', round(np.abs(lamp_on - A)[scr].mean(), 2))

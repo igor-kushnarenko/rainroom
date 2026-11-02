@@ -1,11 +1,11 @@
 // Настройки: устройства, дождь, радио, громкости. Хранятся в localStorage.
 import { DEVICE_IDS } from './config.js';
 export const SETTINGS_KEY = 'rainroom.settings.v1';
-export const SOUND_LAYERS = [{ id: 'rain', name: 'дождь' }, { id: 'thunder', name: 'гром' }, { id: 'room', name: 'комната' }, { id: 'fx', name: 'щелчки' }];
+export const SOUND_LAYERS = [{ id: 'rain', name: 'дождь' }, { id: 'glass', name: 'капли по стеклу' }, { id: 'thunder', name: 'гром' }, { id: 'room', name: 'комната' }, { id: 'fx', name: 'щелчки' }];
 export const DEFAULT_SETTINGS = {
   devices: { lamp: false, lantern: false, radio: false, laptop: false },
   rainLevel: 0.5, thunder: true, fill: false, weather: true, radioVol: 0.5, radioStation: '',
-  volumes: { rain: 0.8, thunder: 0.7, room: 0.6, fx: 0.8 },
+  volumes: { rain: 0.8, glass: 0.45, thunder: 0.7, room: 0.6, fx: 0.8 },
 };
 const clamp01 = (x, d) => (x !== null && x !== '' && Number.isFinite(+x) ? Math.min(1, Math.max(0, +x)) : d);
 export function loadSettings(storage = globalThis.localStorage) {
@@ -37,6 +37,8 @@ export function rainParams(level) {
     soundGain: lerp(0.02, 0.09, l),      // шум дождя по стеклу
     soundCutoff: lerp(2500, 6500, l),
     tickInterval: lerp(0.35, 0.04, l),   // средний интервал отдельных капель по стеклу, с
+    tapRate: lerp(1.5, 28, l ** 1.2),    // удары капель по стеклу в секунду (в среднем)
+    run: lerp(0.12, 0.6, l),             // доля колонок со стекающей водой
     thunderEvery: lerp(150, 45, l),      // средний интервал грома, с
   };
 }

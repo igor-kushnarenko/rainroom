@@ -1,6 +1,6 @@
 import test from 'node:test'; import assert from 'node:assert/strict';
 import { SCENE, DEVICE_IDS, hitDevice } from '../src/config.js';
-import { clockText, parseWeather, weatherLabel, weatherUrl } from '../src/clock.js';
+import { clockText, parseWeather, weatherLabel, weatherUrl, parseWttr, wttrUrl } from '../src/clock.js';
 import { nextIndex } from '../src/radio.js';
 test('4 устройства, хотспоты внутри кадра и не пересекаются', () => {
   assert.deepEqual(DEVICE_IDS, ['lamp', 'lantern', 'radio', 'laptop']);
@@ -10,7 +10,13 @@ test('4 устройства, хотспоты внутри кадра и не �
 });
 test('hitDevice', () => { assert.equal(hitDevice(1590, 150), 'lamp'); assert.equal(hitDevice(60, 370), 'lantern'); assert.equal(hitDevice(50, 600), 'lantern');
   assert.equal(hitDevice(550, 740), 'radio'); assert.equal(hitDevice(1420, 720), 'laptop'); assert.equal(hitDevice(800, 300), null); });
-test('экран ноутбука и пар внутри кадра', () => { const s = SCENE.screen; assert.ok(s.x + s.w <= SCENE.W && s.y + s.h <= SCENE.H); });
+test('панель экрана ноутбука: выпуклый четырёхугольник внутри хотспота ноутбука', () => {
+  const q = SCENE.screen.quad, [x0, y0, x1, y1] = SCENE.devices.laptop.hot[0]; assert.equal(q.length, 4);
+  for (const [x, y] of q) assert.ok(x >= x0 && x <= x1 && y >= y0 && y <= y1);
+  for (let i = 0; i < 4; i++) { const [a, b, c] = [q[i], q[(i + 1) % 4], q[(i + 2) % 4]]; assert.ok((b[0] - a[0]) * (c[1] - b[1]) - (b[1] - a[1]) * (c[0] - b[0]) > 0); }
+  // верх и низ панели почти горизонтальны (параллельны остальным модулям экрана)
+  assert.ok(Math.abs(q[1][1] - q[0][1]) < 6 && Math.abs(q[2][1] - q[3][1]) < 6);
+});
 test('clockText: время и дата по-русски', () => { const c = clockText(new Date(2026, 10, 2, 21, 7, 4)); assert.equal(c.time, '21:07'); assert.equal(c.date, 'пн, 2 ноя'); assert.equal(c.colon, true); });
 test('parseWeather', () => { assert.deepEqual(parseWeather({ current: { temperature_2m: 11.6, weather_code: 61 } }), { temp: '+12°C', label: 'дождь', icon: 'rain' });
   assert.equal(parseWeather({ current: { temperature_2m: -3.2, weather_code: 0 } }).temp, '-3°C'); assert.equal(parseWeather({}), null); assert.equal(parseWeather(null), null); });
@@ -29,3 +35,5 @@ test('fitRect: contain показывает весь кадр, cover запол�
   assert.deepEqual(fitRect(1280, 800), { w: 1280, h: 720, left: 0, top: 40 });
   assert.deepEqual(fitRect(390, 844), { w: 390, h: 219, left: 0, top: 312 });
 });
+test('запасная погода wttr.in', () => { assert.deepEqual(parseWttr({ current_condition: [{ temp_C: '9', weatherCode: '296' }] }), { temp: '+9°C', label: 'дождь', icon: 'rain' });
+  assert.equal(parseWttr({}), null); assert.match(wttrUrl({ city: 'Анапа' }), /^https:\/\/wttr\.in\/Anapa/); });

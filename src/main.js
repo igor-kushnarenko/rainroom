@@ -2,7 +2,7 @@
 import * as THREE from 'three';
 import { SCENE, DEVICE_IDS, hitDevice } from './config.js';
 import { SOUND_LAYERS, loadSettings, saveSettings, toggleDevice, setAll, setRainLevel, rainParams } from './settings.js';
-import { clockText, weatherUrl, parseWeather } from './clock.js';
+import { clockText, weatherUrl, parseWeather, wttrUrl, parseWttr } from './clock.js';
 import { Ambience } from './audio.js';
 import { Tuner } from './radio.js';
 import { fitRect } from './fit.js';
@@ -57,11 +57,15 @@ const S = SCENE.screen;
 const scr = document.createElement('canvas'); scr.width = S.w; scr.height = S.h;
 const sctx = scr.getContext('2d');
 const scrTex = new THREE.CanvasTexture(scr); scrTex.minFilter = scrTex.magFilter = THREE.NearestFilter; scrTex.generateMipmaps = false; scrTex.colorSpace = THREE.NoColorSpace;
-const scrMesh = new THREE.Mesh(new THREE.PlaneGeometry(S.w, S.h), new THREE.ShaderMaterial({ vertexShader: vert, transparent: true, depthTest: false, depthWrite: false,
+// четырёхугольник панели из арта (наклон экрана): холст текста натягивается на него, как исходная панель
+const scrGeo = new THREE.BufferGeometry(); const Q = S.quad.map(([x, y]) => [x, H - y, 0]);
+scrGeo.setAttribute('position', new THREE.Float32BufferAttribute([...Q[3], ...Q[2], ...Q[1], ...Q[0]], 3));
+scrGeo.setAttribute('uv', new THREE.Float32BufferAttribute([0, 0, 1, 0, 1, 1, 0, 1], 2)); scrGeo.setIndex([0, 1, 2, 0, 2, 3]);
+const scrMesh = new THREE.Mesh(scrGeo, new THREE.ShaderMaterial({ vertexShader: vert, transparent: true, depthTest: false, depthWrite: false,
   uniforms: { map: { value: scrTex }, uOn: { value: 0 }, uTime: shared.uTime },
   fragmentShader: `varying vec2 vUv; uniform sampler2D map; uniform float uOn,uTime; void main(){ vec4 t=texture2D(map,vUv);
     float scan=.92+.08*step(.5,fract(vUv.y*${(S.h / 2).toFixed(1)})); gl_FragColor=vec4(t.rgb*scan*(.96+.04*sin(uTime*7.)), t.a*uOn); }` }));
-scrMesh.position.set(S.x + S.w / 2, H - (S.y + S.h / 2), 0); scrMesh.renderOrder = order++; scene.add(scrMesh);
+scrMesh.renderOrder = order++; scene.add(scrMesh);
 let weather = null, weatherAt = -1e9, weatherBusy = false, lastScr = '';
 function pixelText(text, x, y, size, color, align = 'left') { // текст без сглаживания — «пиксельный шрифт»
   const c = document.createElement('canvas'); c.width = S.w; c.height = size * 2; const g = c.getContext('2d');
@@ -74,31 +78,69 @@ function drawScreen(force = false) {
   if (!force && key === lastScr) return; lastScr = key;
   sctx.clearRect(0, 0, S.w, S.h);
   sctx.fillStyle = 'rgb(1,19,27)'; sctx.fillRect(0, 0, S.w, S.h);
-  sctx.strokeStyle = 'rgba(90,230,255,.35)'; sctx.strokeRect(1.5, 1.5, S.w - 3, S.h - 3); sctx.beginPath(); sctx.moveTo(3, 72.5); sctx.lineTo(S.w - 3, 72.5); sctx.stroke();
+  sctx.strokeStyle = 'rgba(90,230,255,.35)'; sctx.strokeRect(1.5, 1.5, S.w - 3, S.h - 3); sctx.beginPath(); sctx.moveTo(3, 68.5); sctx.lineTo(S.w - 3, 68.5); sctx.stroke();
   pixelText(c.colon ? c.time : c.time.replace(':', ' '), 0, 6, 34, '#7ff4ff', 'center');
   pixelText(c.date, 0, 44, 16, '#5fd6ea', 'center');
   if (settings.weather && weather) {
-    pixelText(`${SCENE.weather.city} ${weather.temp}`, 0, 77, 15, '#7ff4ff', 'center');
-    pixelText(weather.label, 0, 94, 13, '#4fb8cc', 'center');
-  } else pixelText(settings.weather ? '…' : '', 0, 82, 15, '#4fb8cc', 'center');
+    pixelText(`${SCENE.weather.city} ${weather.temp}`, 0, 72, 15, '#7ff4ff', 'center');
+    pixelText(weather.label + (weather.old ? ' · ранее' : ''), 0, 88, 12, '#4fb8cc', 'center');
+  } else if (settings.weather) { pixelText(SCENE.weather.city, 0, 72, 15, '#7ff4ff', 'center'); pixelText(weatherBusy ? 'загрузка…' : 'нет связи', 0, 88, 12, '#4fb8cc', 'center'); }
   scrTex.needsUpdate = true;
 }
+const WKEY = 'rainroom.weather.v1';
+try { const c = JSON.parse(localStorage.getItem(WKEY) || 'null'); if (c?.temp) weather = { ...c, old: true }; } catch {} // последняя известная погода
+async function getJSON(u) { const ac = new AbortController(); const t = setTimeout(() => ac.abort(), 8000); try { return await (await fetch(u, { signal: ac.signal })).json(); } finally { clearTimeout(t); } }
 async function refreshWeather(now) {
-  if (!settings.weather || weatherBusy || !settings.devices.laptop || now - weatherAt < (weather ? 900 : 300)) return;
-  weatherBusy = true; weatherAt = now;
-  try { const r = await fetch(weatherUrl(SCENE.weather)); weather = parseWeather(await r.json()) || weather; } catch {}
+  if (!settings.weather || weatherBusy || !settings.devices.laptop || now - weatherAt < (weather && !weather.old ? 900 : 120)) return;
+  weatherBusy = true; weatherAt = now; drawScreen(true);
+  let w = null;
+  try { w = parseWeather(await getJSON(weatherUrl(SCENE.weather))); } catch {}
+  if (!w) try { w = parseWttr(await getJSON(wttrUrl(SCENE.weather))); } catch {} // запасной источник
+  if (w) { weather = w; try { localStorage.setItem(WKEY, JSON.stringify(w)); } catch {} }
   weatherBusy = false; drawScreen(true);
 }
 
 // ---------- 4. стекло: неон и молния (только по маске стекла — предметы на подоконнике впереди) ----------
 const glassTex = loadTex('./layers/masks/glass.png');
-const glassMat = fullPlane(`uniform sampler2D uBase,uGlass,uNeon; uniform float uFlash,uNeonF;
+const glassMat = fullPlane(`uniform sampler2D uBase,uGlass,uNeon; uniform float uFlash,uNeonF,uRun,uBeads;
+  const float GT=92., GB=771.;
+  // стекающая капля в колонке: у каждой колонки и каждого «захода» свои размер, путь, скорость; движение рывками (задержка-срыв)
+  void runner(vec2 p, float cw, float k, inout vec2 off, inout float wet, inout float hi){
+    float xs = p.x + k*23.7; float c = floor(xs/cw);
+    if (hash(vec2(c, k)) > uRun) return;
+    float period = 7. + 9.*hash(vec2(c, k+1.));
+    float tt = uTime/period + hash(vec2(c, k+2.)); float cyc = floor(tt), ph = fract(tt);
+    vec2 id = vec2(c, cyc + k*17.);
+    float r = mix(1.8, 5.5, hash(id)*hash(id+.3));
+    float n = 2. + floor(4.*hash(id+3.)); float g = ph - .85*sin(6.2832*ph*n)/(6.2832*n); // монотонно, с остановками
+    float y0 = mix(GT - 40., GT + 300., hash(id+4.)); float yh = mix(y0, GB + 30., g);
+    float x0 = (c + .25 + .5*hash(id+5.))*cw - k*23.7;
+    float mw = cw*.35*hash(id+6.);
+    #define XM(y) (x0 + (noise(vec2((y)*.013, c*3.1 + cyc)) - .5)*2.*mw)
+    float dx = p.x - XM(p.y);
+    vec2 d = vec2(dx, (p.y - yh)*.85); float dl = length(d);
+    float fade = smoothstep(0., .04, ph);
+    if (dl < r) { vec2 nn = d/r; off += -nn*r*1.8*fade; hi = max(hi, fade*max(0., 1. - length(nn - vec2(-.3, -.45))*1.4)); }
+    float tl = mix(80., 380., hash(id+7.));
+    float above = yh - p.y;
+    if (above > 0. && above < tl) { float wdt = max(.45, r*.3*(1. - above/tl)); float a = smoothstep(wdt + .6, wdt*.5, abs(dx)) * (1. - above/tl) * fade;
+      wet = max(wet, a); off.x += dx*.25*a; }
+  }
   void main(){
     vec2 p=world(); float gm=tex(uGlass,p).r; if(gm<.01) discard;
-    vec3 bg=tex(uBase,p).rgb; float nm=tex(uNeon,p).r; bg*=1.+nm*(uNeonF-1.);   // мягкое мерцание неона
+    vec2 off=vec2(0.); float wet=0., hi=0.;
+    runner(p, 52., 0., off, wet, hi); runner(p, 77., 1., off, wet, hi); runner(p, 113., 2., off, wet, hi);
+    // мелкие неподвижные капли: плавно растут и высыхают (без мерцания)
+    vec2 cs = vec2(17.); vec2 cc = floor((p + vec2(0., 7.)*floor(p.x/17.))/cs);
+    float hb = hash(cc + 9.1);
+    if (hb < uBeads) { vec2 ctr = (cc + .5 + (vec2(hash(cc+1.3), hash(cc+2.9)) - .5)*.7)*cs - vec2(0., 7.)*floor(p.x/17.);
+      float life = .5 + .5*sin(uTime*(.05 + .05*hash(cc+4.4)) + hb*40.); float r = (0.7 + 1.8*hash(cc+5.7))*smoothstep(.15, .6, life);
+      vec2 d = p - ctr; float dl = length(d); if (dl < r) { off += -d*1.6; hi = max(hi, .5*(1. - dl/r)); } }
+    vec3 bg=tex(uBase,p+off).rgb; float nm=tex(uNeon,p+off).r; bg*=1.+nm*(uNeonF-1.);   // мягкое мерцание неона
+    bg = bg*(1. + wet*.18) + wet*vec3(.02,.03,.04) + hi*vec3(.55,.65,.8)*.3;
     float lum=dot(bg,vec3(.3,.5,.2));
     gl_FragColor=vec4(bg+uFlash*(vec3(.30,.34,.48)*.35+bg*1.1+lum*.6),gm);        // молния
-  }`, { uBase: { value: baseTex }, uGlass: { value: glassTex }, uNeon: { value: loadTex('./layers/masks/neon.png') }, uFlash: { value: 0 }, uNeonF: { value: 1 } }).material.uniforms;
+  }`, { uBase: { value: baseTex }, uGlass: { value: glassTex }, uNeon: { value: loadTex('./layers/masks/neon.png') }, uFlash: { value: 0 }, uNeonF: { value: 1 }, uRun: { value: 0.3 }, uBeads: { value: 0.3 } }).material.uniforms;
 // дождь: тонкие (~1 px) штрихи, у каждой колонки свои случайные скорость, фаза, длина, позиция и прозрачность;
 // колонки независимы (нет пар и решётки), 3 слоя глубины, лёгкий наклон. Только по маске стекла.
 const rainU = { uRainDen: { value: 0.2 }, uRainLen: { value: 1 }, uRainSlant: { value: 0.04 }, uRainA: { value: 1 }, uRainT: { value: 0 }, uGlass: { value: glassTex } };
@@ -291,7 +333,7 @@ function frame(now) {
   rainShown = rainShown ?? rainLevel(); rainShown += (rainLevel() - rainShown) * (1 - Math.exp(-dt * 1.2)); // плавно, как в campfire
   const RP = rainParams(rainShown);
   rainU.uRainDen.value = RP.density; rainU.uRainLen.value = RP.length; rainU.uRainSlant.value = 0.03 + RP.slant * 0.15; rainU.uRainA.value = RP.alpha; rainU.uRainT.value = (rainU.uRainT.value + dt * RP.speed) % 1800; // ограничиваем фазу — без потери точности float
-  steamU.uWarm.value = dev.lamp.shown;
+  steamU.uWarm.value = dev.lamp.shown; glassMat.uRun.value = RP.run; glassMat.uBeads.value = RP.drops * 0.5;
   neonT -= dt; if (neonT <= 0) { neonF = Math.random() < 0.06 ? 0.8 + Math.random() * 0.1 : 1 + (Math.random() - 0.5) * 0.04; neonT = neonF < 0.95 ? 0.12 + Math.random() * 0.15 : 0.8 + Math.random() * 2.5; }
   glassMat.uNeonF.value += (neonF - glassMat.uNeonF.value) * Math.min(1, dt * 10);
   if (settings.thunder && clock >= nextThunder) { thunder(); nextThunder = clock + R.thunderEvery * (0.5 + Math.random()); }

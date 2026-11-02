@@ -26,3 +26,11 @@ export function parseWeather(j) {
   const t = Math.round(c.temperature_2m); const w = weatherLabel(c.weather_code);
   return { temp: `${t > 0 ? '+' : ''}${t}°C`, label: w.t, icon: w.i };
 }
+// запасной источник погоды (без ключа): wttr.in
+export function wttrUrl({ city }) { return `https://wttr.in/${encodeURIComponent(city === 'Анапа' ? 'Anapa' : city)}?format=j1`; }
+export function parseWttr(j) {
+  const c = j?.current_condition?.[0]; const t = Number(c?.temp_C); if (!c || !Number.isFinite(t)) return null;
+  const code = Number(c.weatherCode); const map = { 113: 0, 116: 2, 119: 3, 122: 3, 143: 45, 248: 45, 260: 45, 200: 95, 386: 95, 389: 95 };
+  const wmo = map[code] ?? (code >= 263 && code <= 359 ? 61 : code >= 362 ? 71 : 3);
+  return parseWeather({ current: { temperature_2m: t, weather_code: wmo } });
+}
