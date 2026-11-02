@@ -44,3 +44,19 @@ test('дороги: внутри стекла, точки на пути, зац�
   const p = buildPath({ pts: [[0, 0], [10, 0], [10, 10]] }); assert.equal(p.len, 20);
   assert.deepEqual(pointAt(p, 5), [5, 0]); assert.deepEqual(pointAt(p, 15), [10, 5]); assert.deepEqual(pointAt(p, -5), [10, 5]); assert.deepEqual(pointAt(p, 25), [5, 0]);
 });
+import { parallaxOffset } from '../src/config.js';
+import { existsSync } from 'node:fs';
+test('слои v3: порядок sky→far→mid→near, параллакс растёт к ближним и не открывает края слоёв в стекле', () => {
+  assert.deepEqual(SCENE.layers.map((l) => l.id), ['sky', 'far', 'mid', 'near']);
+  const k = SCENE.layers.map((l) => l.parallax); for (let i = 1; i < k.length; i++) assert.ok(k[i] > k[i - 1]);
+  const [gx0, gy0, gx1, gy1] = SCENE.glass, margin = Math.min(gx0, gy0, SCENE.W - gx1, SCENE.H - gy1);
+  for (const l of SCENE.layers) for (const [nx, ny] of [[-1, -1], [1, 1], [5, -5], [0, 0]]) {
+    const [dx, dy] = parallaxOffset(l, nx, ny); assert.ok(Math.abs(dx) <= l.parallax && Math.abs(dy) <= l.parallax && Math.abs(dx) < margin && Math.abs(dy) < margin);
+  }
+  assert.deepEqual(parallaxOffset(SCENE.layers[3], 0, 0).map(Math.abs), [0, 0]);
+});
+test('ассеты слоёв v3 на месте', () => {
+  for (const d of ['aligned', 'half']) for (const n of ['sky', 'far', 'mid', 'near', 'room_off', 'room_on']) assert.ok(existsSync(`public/layers/v3/${d}/${n}.png`), `${d}/${n}`);
+  for (const n of ['glass', 'light_rgb', 'light_laptop', 'far_fx', 'mid_fx', 'near_fx']) assert.ok(existsSync(`public/layers/v3/masks/${n}.png`), n);
+  assert.ok(SCENE.layers.some((l) => l.id === SCENE.roadLayer));
+});
