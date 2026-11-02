@@ -19,13 +19,17 @@ const renderer = new THREE.WebGLRenderer({ canvas, antialias: false, powerPrefer
 renderer.setPixelRatio(1);
 const rt = new THREE.WebGLRenderTarget(RW, RH, { minFilter: THREE.NearestFilter, magFilter: THREE.NearestFilter, generateMipmaps: false });
 const scene = new THREE.Scene();
-const CROP_X = 6, CROP_Y = CROP_X * H / W;
+const CROP_X = 6, CROP_Y = 3; // целые: буфер сцены = арт 1:1 (1660x935), текселы ровно в пикселях
 const cam = new THREE.OrthographicCamera(CROP_X, W - CROP_X, H - CROP_Y, CROP_Y, -10, 10);
 
 const loader = new THREE.TextureLoader();
 function loadTex(path, nearest = false) {
-  const t = loader.load(path); t.colorSpace = THREE.NoColorSpace; t.generateMipmaps = false;
-  t.minFilter = t.magFilter = nearest ? THREE.NearestFilter : THREE.LinearFilter; return t;
+  // Мип-карты обязательны: при уменьшении кадра (contain на экранах меньше 1672 px) линейная выборка без них
+  // даёт алиасинг мелких деталей арта — на реальных экранах это выглядело как «кольца/отпечатки пальцев» в облаках.
+  const t = loader.load(path); t.colorSpace = THREE.NoColorSpace;
+  if (nearest) { t.generateMipmaps = false; t.minFilter = t.magFilter = THREE.NearestFilter; }
+  else { t.generateMipmaps = !params.has('nomip'); t.minFilter = t.generateMipmaps ? THREE.LinearMipmapLinearFilter : THREE.LinearFilter; t.magFilter = THREE.LinearFilter; }
+  return t;
 }
 const layerPath = (n) => (LOW ? `./layers/half/${n}.png` : `./layers/aligned/${n}.png`);
 const vert = `varying vec2 vUv; void main(){ vUv=uv; gl_Position=projectionMatrix*modelViewMatrix*vec4(position,1.); }`;
@@ -252,11 +256,19 @@ const steamMesh = fullPlane(`uniform vec2 uMug; uniform float uWarm;
     if(a<.01) discard; gl_FragColor=vec4(mix(vec3(.74,.8,.9),vec3(1.,.84,.66),uWarm*.6),min(a,.6)); }`,
 { uMug: { value: new THREE.Vector2(sx0, sy0) }, uWarm: { value: 0 } }); steamMesh.visible = !NOFX.has('steam'); const steamU = steamMesh.material.uniforms;
 
-// ---------- пост-проход: буфер → экран ближайшим соседом + лёгкая виньетка ----------
+// ---------- пост-проход: буфер сцены (арт 1:1) → экран бикубикой (Catmull-Rom) + лёгкая виньетка ----------
+// Раньше арт сразу масштабировался билинейно с дробным коэффициентом (×1.157 при 1920): резкость «плавала» с периодом
+// 1/(k−1) ≈ 6.4 px, на облаках это давало муар-«кольца». Теперь сцена рисуется 1:1, а масштаб — один раз и ровной бикубикой.
 const postScene = new THREE.Scene(), postCam = new THREE.OrthographicCamera(-1, 1, 1, -1, 0, 1);
 postScene.add(new THREE.Mesh(new THREE.PlaneGeometry(2, 2), new THREE.ShaderMaterial({ vertexShader: `varying vec2 vUv; void main(){ vUv=uv; gl_Position=vec4(position,1.); }`,
-  fragmentShader: `varying vec2 vUv; uniform sampler2D t; void main(){ vec3 c=texture2D(t,vUv).rgb; vec2 d=vUv-.5; c*=1.-dot(d,d)*.45; gl_FragColor=vec4(c,1.); }`,
-  uniforms: { t: { value: rt.texture } }, depthTest: false })));
+  fragmentShader: `varying vec2 vUv; uniform sampler2D t; uniform vec2 uSz; uniform float uCubic;
+    vec3 cubic(vec2 uv){ vec2 p=uv*uSz-.5, f=fract(p), i=floor(p);
+      vec2 w0=f*(-.5+f*(1.-.5*f)), w1=1.+f*f*(-2.5+1.5*f), w2=f*(.5+f*(2.-1.5*f)), w3=f*f*(-.5+.5*f);
+      vec2 s0=w0+w1, s1=w2+w3, o0=(i-.5+w1/s0)/uSz, o1=(i+1.5+w3/s1)/uSz;
+      return (texture2D(t,vec2(o0.x,o0.y)).rgb*s0.x+texture2D(t,vec2(o1.x,o0.y)).rgb*s1.x)*s0.y+(texture2D(t,vec2(o0.x,o1.y)).rgb*s0.x+texture2D(t,vec2(o1.x,o1.y)).rgb*s1.x)*s1.y; }
+    void main(){ vec3 c=uCubic>.5?cubic(vUv):texture2D(t,vUv).rgb; vec2 d=vUv-.5; c*=1.-dot(d,d)*.45; gl_FragColor=vec4(max(c,0.),1.); }`,
+  uniforms: { t: { value: rt.texture }, uSz: { value: new THREE.Vector2(1, 1) }, uCubic: { value: 1 } }, depthTest: false })));
+const postU = postScene.children[0].material.uniforms;
 
 // ---------- состояние, звук, радио ----------
 let settings = loadSettings();
@@ -282,7 +294,8 @@ function setDevice(id, on) {
 }
 
 // ---------- гроза: вспышки и далёкий гром ----------
-let clock = 0, nextThunder = 20 + Math.random() * 40, flashes = [];
+let clock = Number(params.get('t0')) || 0, // ?t0=900 — начать с «прожитого» времени (отладка эффектов, зависящих от времени)
+  nextThunder = 20 + Math.random() * 40, flashes = [];
 function thunder(power = 0.4 + Math.random() * 0.6) {
   const t = clock; flashes.push({ t, a: 0.5 + 0.5 * power }); if (Math.random() < 0.7) flashes.push({ t: t + 0.12 + Math.random() * 0.1, a: 0.35 * power + 0.2 });
   if (Math.random() < 0.4) flashes.push({ t: t + 0.4, a: 0.25 });
@@ -377,7 +390,8 @@ function resize() {
   const vw = innerWidth, vh = innerHeight; const { w, h, left, top } = fitRect(vw, vh, settings.fill ? 'cover' : 'contain');
   const dpr = devicePixelRatio || 1; let bw = Math.round(w * dpr), bh = Math.round(h * dpr); const cap = Math.min(1, 1920 / bw, 1080 / bh);
   bw = Math.round(bw * cap); bh = Math.round(bh * cap); renderer.setSize(bw, bh, false);
-  if (LOW) { RW = 480; RH = 270; } else { RW = bw; RH = bh; } rt.setSize(RW, RH); carPx.value = RW / (W - 2 * CROP_X);
+  if (LOW) { RW = 480; RH = 270; } else { RW = W - 2 * CROP_X; RH = H - 2 * CROP_Y; } rt.setSize(RW, RH);
+  rt.texture.minFilter = rt.texture.magFilter = LOW ? THREE.NearestFilter : THREE.LinearFilter; rt.texture.needsUpdate = true; postU.uSz.value.set(RW, RH); postU.uCubic.value = LOW || NOFX.has('pixel') ? 0 : 1; carPx.value = RW / (W - 2 * CROP_X);
   Object.assign(canvas.style, { width: w + 'px', height: h + 'px', left: left + 'px', top: top + 'px' });
 }
 addEventListener('resize', resize); resize(); wake(); renderUI(); drawScreen(true);
@@ -408,7 +422,7 @@ function frame(now) {
   let fl = 0; flashes = flashes.filter((f) => clock - f.t < 1); for (const f of flashes) { const k = clock - f.t; if (k >= 0) fl = Math.max(fl, f.a * Math.exp(-k / 0.09)); }
   glassMat.uFlash.value = fl;
   updatePuffs(dt); updateCars(dt); tuner.update(dt);
-  if (NOFX.has('pixel')) { renderer.setRenderTarget(null); renderer.render(scene, cam); } else { renderer.setRenderTarget(rt); renderer.render(scene, cam); renderer.setRenderTarget(null); renderer.render(postScene, postCam); }
+  renderer.setRenderTarget(rt); renderer.render(scene, cam); renderer.setRenderTarget(null); renderer.render(postScene, postCam);
   requestAnimationFrame(frame);
 }
 requestAnimationFrame(frame);
