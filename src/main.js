@@ -10,7 +10,8 @@ import { fitRect } from './fit.js';
 const { W, H } = SCENE;
 const params = new URLSearchParams(location.search);
 const LOW = params.get('q') === 'low';         // слабые ТВ: всё в 480x270 и растягивается ближайшим соседом
-const NOFX = new Set((params.get('nofx') || '').split(',').filter(Boolean)); // ?nofx=clouds,fog,rain,drops,city,steam,pixel
+const NOFX = new Set((params.get('nofx') || '').split(',').filter(Boolean));
+const FX = new Set((params.get('fx') || '').split(',').filter(Boolean)); // ?fx=clouds,fog — включить (по умолчанию выключены) // ?nofx=clouds,fog,rain,drops,city,steam,pixel
 const PIX = W / 480;                            // «пиксель» эффектов в координатах мира
 let RW = 480, RH = 270;
 const canvas = document.getElementById('c');
@@ -140,7 +141,7 @@ const glassMat = fullPlane(`uniform sampler2D uBase,uGlass,uNeon,uCity; uniform 
       vec2 d = p - ctr; float dl = length(d); if (dl < r) { off += -d*1.6; hi = max(hi, .5*(1. - dl/r)); } }
     vec2 cp=p+off; vec3 bg=tex(uBase,cp).rgb; vec4 cm=tex(uCity,cp);
     // окна домов: кластеры 7x5 px включаются/выключаются медленно и плавно
-    vec2 wc=floor(cp/vec2(7.,5.)); float wh=hash(wc+.7), per=25.+70.*hash(wc+1.9); float tt=uTime/per+wh*9.;
+    vec2 wc=floor(cp/vec2(7.,5.)); float wh=hash(wc+.7), per=100.+280.*hash(wc+1.9); /* в 4 раза реже */ float tt=uTime/per+wh*9.;
     float onA=step(.2,hash(wc+floor(tt)*1.37)), onB=step(.2,hash(wc+(floor(tt)-1.)*1.37)); float on=mix(onB,onA,smoothstep(0.,.04,fract(tt)));
     cm*=uCityFx; bg=mix(bg,bg*.22,cm.r*(1.-on));
     // красные огни на шпилях: мигают, у каждого своя фаза
@@ -175,8 +176,8 @@ function puff(kind, i, first) {
     P.life = 50 + Math.random() * 70; P.age = start ? Math.random() * P.life : 0; P.amax = fog ? 0.16 + Math.random() * 0.1 : 0.12 + Math.random() * 0.1; };
   P.reset(first); puffs.push(P);
 }
-if (!NOFX.has('clouds')) for (let i = 0; i < 7; i++) puff('cloud', i, true);
-if (!NOFX.has('fog')) for (let i = 0; i < 6; i++) puff('fog', i, true);
+if (FX.has('clouds') && !NOFX.has('clouds')) for (let i = 0; i < 7; i++) puff('cloud', i, true);
+if (FX.has('fog') && !NOFX.has('fog')) for (let i = 0; i < 6; i++) puff('fog', i, true);
 function updatePuffs(dt) {
   for (const P of puffs) {
     P.age += dt; if (P.age > P.life) P.reset(false); P.x += P.v * dt;
@@ -189,19 +190,19 @@ function updatePuffs(dt) {
 // ---------- машины: огоньки по дорогам (SCENE.roads), оба направления; маска стекла ----------
 import { buildPath, pointAt } from './traffic.js';
 const roads = SCENE.roads.map(buildPath); const cars = [];
-for (const [ri, r] of roads.entries()) for (let i = 0; i < r.cars; i++) cars.push({ r: ri, s: Math.random() * r.len, v: (4.7 + Math.random() * 5.3) * (i % 2 ? 1 : -1), tw: Math.random() * 6 });
+for (const [ri, r] of roads.entries()) for (let i = 0; i < r.cars; i++) cars.push({ r: ri, s: Math.random() * r.len, v: (7 + Math.random() * 6) * (i % 2 ? 1 : -1), tw: Math.random() * 6 }); // 7–13 px/с: сдвиг заметен за 2–3 с
 const carGeo = new THREE.BufferGeometry(); const carPos = new Float32Array(cars.length * 3), carCol = new Float32Array(cars.length * 3);
 carGeo.setAttribute('position', new THREE.BufferAttribute(carPos, 3)); carGeo.setAttribute('aColor', new THREE.BufferAttribute(carCol, 3));
 const carPx = { value: 1 };
 const carPts = new THREE.Points(carGeo, new THREE.ShaderMaterial({ transparent: true, depthTest: false, depthWrite: false, blending: THREE.AdditiveBlending,
   uniforms: { uGlass: { value: glassTex }, uPx: carPx },
-  vertexShader: `attribute vec3 aColor; varying vec3 vC; varying vec2 vW; uniform float uPx; void main(){ vC=aColor; vW=position.xy; gl_Position=projectionMatrix*modelViewMatrix*vec4(position,1.); gl_PointSize=max(2.,3.*uPx); }`,
-  fragmentShader: `uniform sampler2D uGlass; varying vec3 vC; varying vec2 vW; void main(){ float gm=texture2D(uGlass, vec2(vW.x/${W}., vW.y/${H}.)).r; vec2 c=gl_PointCoord*2.-1.; float r2=dot(c,c); float a=(smoothstep(.35,0.,r2)*.9+smoothstep(1.,0.,r2)*.18)*gm; if(a<.02) discard; gl_FragColor=vec4(vC*a,1.); // крошечная точка + лёгкое свечение }` }));
+  vertexShader: `attribute vec3 aColor; varying vec3 vC; varying vec2 vW; uniform float uPx; void main(){ vC=aColor; vW=position.xy; gl_Position=projectionMatrix*modelViewMatrix*vec4(position,1.); gl_PointSize=max(3.,4.*uPx); }`,
+  fragmentShader: `uniform sampler2D uGlass; varying vec3 vC; varying vec2 vW; void main(){ float gm=texture2D(uGlass, vec2(vW.x/${W}., vW.y/${H}.)).r; vec2 c=gl_PointCoord*2.-1.; float r2=dot(c,c); float a=(smoothstep(.3,0.,r2)*1.6+smoothstep(1.,0.,r2)*.35)*gm; if(a<.02) discard; gl_FragColor=vec4(vC*a,1.); /* точка + лёгкое свечение */ }` }));
 carPts.frustumCulled = false; carPts.renderOrder = order++; scene.add(carPts);
 function updateCars(dt) {
   cars.forEach((c, i) => { const r = roads[c.r]; c.s = (c.s + c.v * dt + r.len) % r.len; const [x, y] = pointAt(r, c.s);
-    carPos[i * 3] = x; carPos[i * 3 + 1] = H - y; const k = 0.6 + 0.15 * Math.sin(clock * 0.7 + c.tw);
-    const col = c.v > 0 ? [1.0, 0.92, 0.8] : [1.0, 0.18, 0.15]; // фары / стоп-сигналы
+    carPos[i * 3] = x; carPos[i * 3 + 1] = H - y; const k = 1.1 + 0.1 * Math.sin(clock * 0.7 + c.tw);
+    const col = c.v > 0 ? [1.0, 0.95, 0.75] : [1.0, 0.25, 0.12]; // фары / стоп-сигналы
     carCol[i * 3] = col[0] * k; carCol[i * 3 + 1] = col[1] * k; carCol[i * 3 + 2] = col[2] * k; });
   carGeo.attributes.position.needsUpdate = true; carGeo.attributes.aColor.needsUpdate = true;
 }
@@ -411,4 +412,4 @@ function frame(now) {
   requestAnimationFrame(frame);
 }
 requestAnimationFrame(frame);
-window.__rainroom = { audio, tuner, thunder, setDevice, fps: () => fps, state: () => ({ devices: { ...settings.devices }, shown: Object.fromEntries(DEVICE_IDS.map((id) => [id, +dev[id].shown.toFixed(2)])), rainLevel: rainLevel(), weather, flash: glassMat.uFlash.value, tuner: { state: tuner.state, name: tuner.cur()?.name } }) };
+window.__rainroom = { carPts, cars: () => cars.map((c) => pointAt(roads[c.r], c.s).map((v) => +v.toFixed(1))), audio, tuner, thunder, setDevice, fps: () => fps, state: () => ({ devices: { ...settings.devices }, shown: Object.fromEntries(DEVICE_IDS.map((id) => [id, +dev[id].shown.toFixed(2)])), rainLevel: rainLevel(), weather, flash: glassMat.uFlash.value, tuner: { state: tuner.state, name: tuner.cur()?.name } }) };
