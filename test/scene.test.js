@@ -17,3 +17,15 @@ test('parseWeather', () => { assert.deepEqual(parseWeather({ current: { temperat
 test('weatherLabel и url без ключа', () => { assert.equal(weatherLabel(95).t, 'гроза'); assert.equal(weatherLabel(2).t, 'облачно');
   const u = weatherUrl(SCENE.weather); assert.match(u, /^https:\/\/api\.open-meteo\.com\//); assert.doesNotMatch(u, /key/i); });
 test('тюнер: nextIndex пропускает нерабочие', () => { assert.equal(nextIndex(3, 0, 1, new Set([1])), 2); assert.equal(nextIndex(3, 0, -1, new Set()), 2); assert.equal(nextIndex(2, 0, 1, new Set([0, 1])), -1); assert.equal(nextIndex(0, 0, 1, new Set()), -1); });
+import { fitRect } from '../src/fit.js';
+test('fitRect: contain показывает весь кадр, cover заполняет экран', () => {
+  for (const [vw, vh] of [[1280, 800], [1920, 1080], [390, 844], [2560, 1080]]) {
+    const c = fitRect(vw, vh, 'contain'), v = fitRect(vw, vh, 'cover');
+    assert.ok(c.w <= vw && c.h <= vh && (c.w === vw || c.h === vh), `contain ${vw}x${vh}`);
+    assert.ok(v.w >= vw && v.h >= vh, `cover ${vw}x${vh}`);
+    assert.ok(Math.abs(c.w / c.h - 16 / 9) < 0.01 && Math.abs(v.w / v.h - 16 / 9) < 0.01);
+    assert.equal(c.left, Math.floor((vw - c.w) / 2)); assert.equal(c.top, Math.floor((vh - c.h) / 2));
+  }
+  assert.deepEqual(fitRect(1280, 800), { w: 1280, h: 720, left: 0, top: 40 });
+  assert.deepEqual(fitRect(390, 844), { w: 390, h: 219, left: 0, top: 312 });
+});

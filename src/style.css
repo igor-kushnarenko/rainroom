@@ -61,3 +61,6 @@ button:focus-visible,#menubtn:focus-visible{outline-color:#6ef0ff}
 button.on .led{background:#6ef0ff;box-shadow:0 0 6px #6ef0ff}
 button.on{background:rgba(60,200,255,.18);border-color:rgba(120,220,255,.4)}
 .vol input,.rainlvl input{accent-color:#6ef0ff}
+/* поля при вписывании: размытое и затемнённое продолжение кадра */
+body{background:#05080d}
+#bg{position:absolute;inset:-60px;background:#05080d url(../layers/half/01_base.png) center/cover no-repeat;filter:blur(28px) brightness(.32) saturate(1.1)}

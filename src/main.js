@@ -5,6 +5,7 @@ import { SOUND_LAYERS, loadSettings, saveSettings, toggleDevice, setAll, setRain
 import { clockText, weatherUrl, parseWeather } from './clock.js';
 import { Ambience } from './audio.js';
 import { Tuner } from './radio.js';
+import { fitRect } from './fit.js';
 
 const { W, H } = SCENE;
 const params = new URLSearchParams(location.search);
@@ -87,35 +88,44 @@ async function refreshWeather(now) {
   weatherBusy = false; drawScreen(true);
 }
 
-// ---------- 4. стекло: дождь, капли, неон, молния (только по маске стекла — предметы на подоконнике впереди) ----------
-const glassMat = fullPlane(`uniform sampler2D uBase,uGlass,uNeon; uniform float uDrops,uSlide,uStreaks,uFlash,uNeonF,uWarm;
+// ---------- 4. стекло: неон и молния (только по маске стекла — предметы на подоконнике впереди) ----------
+const glassTex = loadTex('./layers/masks/glass.png');
+const glassMat = fullPlane(`uniform sampler2D uBase,uGlass,uNeon; uniform float uFlash,uNeonF;
   void main(){
     vec2 p=world(); float gm=tex(uGlass,p).r; if(gm<.01) discard;
-    vec2 q=(floor(p/PIX)+.5)*PIX; vec2 off=vec2(0.); float hi=0., trail=0.;
-    // неподвижные капли: появляются и медленно исчезают
-    vec2 cs=vec2(24.); vec2 c=floor(q/cs); float h=hash(c);
-    if(h<uDrops){ vec2 ctr=(c+.5+(vec2(hash(c+3.1),hash(c+7.3))-.5)*.55)*cs; float r=2.5+4.5*hash(c+11.7);
-      float life=fract(uTime*.04+hash(c+5.5)); r*=smoothstep(0.,.08,life)*smoothstep(1.,.85,life);
-      vec2 d=q-ctr; float dd=length(d); if(dd<r){ vec2 n=d/max(r,1.); off=-n*r*2.4; hi=max(0.,1.-length(n-vec2(-.35,-.4))*1.6); } }
-    // стекающие капли с дорожкой
-    float col=floor(q.x/34.); float hc=hash(vec2(col,1.7));
-    if(hc<uSlide){ float sp=30.+90.*hash(vec2(col,2.3)); float y0=mod(uTime*sp+hash(vec2(col,3.9))*977.,820.)+40.;
-      float x0=(col+.5)*34.+sin(q.y*.035+col)*5.; float dx=abs(q.x-x0), dy=q.y-y0;
-      if(length(vec2(dx,dy*.8))<5.){ off=vec2(x0-q.x,y0-q.y)*2.2; hi=max(hi,.7); }
-      else if(dx<2. && dy<0. && dy>-160.) trail=(1.+dy/160.)*.6; }
-    // струи дождя за окном (косые, быстрые)
-    vec2 s=q; s.x+=s.y*.16; vec2 sc=vec2(8.,64.); float ys=(s.y-uTime*950.)/sc.y; vec2 sg=floor(vec2(s.x/sc.x,ys));
-    float sx=fract(s.x/sc.x), sy=fract(ys);
-    float streak=step(hash(sg),uStreaks)*step(abs(sx-.5),.14)*smoothstep(0.,.35,sy)*smoothstep(1.,.65,sy);
-    vec3 bg=tex(uBase,p+off).rgb;
-    float nm=tex(uNeon,p+off).r; bg*=1.+nm*(uNeonF-1.);       // мерцание неона
+    vec3 bg=tex(uBase,p).rgb; float nm=tex(uNeon,p).r; bg*=1.+nm*(uNeonF-1.);   // мягкое мерцание неона
     float lum=dot(bg,vec3(.3,.5,.2));
-    vec3 colr=bg*(1.+trail*.35)+streak*vec3(.55,.68,.85)*.22+hi*vec3(.65,.8,.95)*.35;
-    colr+=hi*vec3(1.,.6,.3)*.25*uWarm;                       // тёплые блики от лампы
-    colr+=uFlash*(vec3(.30,.34,.48)*.35+bg*1.1+lum*.6);      // молния
-    gl_FragColor=vec4(colr,gm);
-  }`, { uBase: { value: baseTex }, uGlass: { value: loadTex('./layers/masks/glass.png') }, uNeon: { value: loadTex('./layers/masks/neon.png') },
-  uDrops: { value: 0.4 }, uSlide: { value: 0.2 }, uStreaks: { value: 0.2 }, uFlash: { value: 0 }, uNeonF: { value: 1 }, uWarm: { value: 0 } }).material.uniforms;
+    gl_FragColor=vec4(bg+uFlash*(vec3(.30,.34,.48)*.35+bg*1.1+lum*.6),gm);        // молния
+  }`, { uBase: { value: baseTex }, uGlass: { value: glassTex }, uNeon: { value: loadTex('./layers/masks/neon.png') }, uFlash: { value: 0 }, uNeonF: { value: 1 } }).material.uniforms;
+// дождь: шейдер из campfire без изменений логики (тонкие пиксельные штрихи, два слоя глубины), плюс маска стекла
+const rainU = { uRain: { value: 1 }, uRainDen: { value: 0.2 }, uRainLen: { value: 1 }, uRainSlant: { value: 0.2 }, uRainA: { value: 1 }, uRainT: { value: 0 }, uGlass: { value: glassTex } };
+const rainFrag = `uniform float uRain,uNear,uRainDen,uRainLen,uRainSlant,uRainA,uRainT; uniform sampler2D uGlass; varying vec2 vUv;
+  float hash(vec2 p){ return fract(sin(dot(p,vec2(127.1,311.7)))*43758.5453); }
+  void main(){
+    float gm = texture2D(uGlass, vUv).r; if (gm < .01) discard;
+    vec2 p = vec2(vUv.x*${W}., (1.-vUv.y)*${H}.);
+    float near = step(.5, uNear);
+    float px = ${PIX.toFixed(4)} * mix(.75, 1., near);
+    p = (floor(p/px)+.5)*px;
+    float x = p.x + p.y*uRainSlant;
+    float c = floor(x/px);
+    float h = hash(vec2(c, uNear));
+    float per = mix(200., 300., near);
+    float len = mix(13., 26., near) * uRainLen;
+    float shift = uRainT * mix(560., 950., near) * (.85+.3*h) - h*per*9.;
+    float yy = p.y - shift;
+    float cyc = floor(yy/per);
+    if (hash(vec2(c*1.7 + cyc*13.1, 3.+uNear)) > uRainDen * mix(1.2, 1., near)) discard;
+    float m = mod(yy, per);
+    if (m > len) discard;
+    float a = mix(.2, .32, near) * uRain * uRainA * (m/len);
+    gl_FragColor = vec4(.72,.78,.9, a*gm);
+  }`;
+for (const near of [0, 1]) {
+  const m = new THREE.Mesh(plane, new THREE.ShaderMaterial({ vertexShader: vert, fragmentShader: rainFrag, transparent: true, depthTest: false, depthWrite: false, uniforms: { ...rainU, uNear: { value: near } } }));
+  m.position.set(W / 2, H / 2, 0); m.renderOrder = order++; scene.add(m);
+}
+let rainShown = null;
 
 // ---------- 5. пар над кружкой ----------
 const [sx0, sy0] = SCENE.steam;
@@ -137,6 +147,7 @@ postScene.add(new THREE.Mesh(new THREE.PlaneGeometry(2, 2), new THREE.ShaderMate
 // ---------- состояние, звук, радио ----------
 let settings = loadSettings();
 const rainOverride = params.has('rain') ? Math.min(1, Math.max(0, +params.get('rain'))) : null;
+if (params.has('fill')) settings = { ...settings, fill: params.get('fill') === '1' };
 if (params.has('devices')) { const on = params.get('devices').split(','); settings = { ...settings, devices: Object.fromEntries(DEVICE_IDS.map((id) => [id, on.includes(id) || on.includes('all')])) }; }
 const rainLevel = () => rainOverride ?? settings.rainLevel;
 const audio = new Ambience(); audio.setVolumes(settings.volumes); audio.setRain(rainLevel());
@@ -175,6 +186,8 @@ for (const id of DEVICE_IDS) {
 }
 document.getElementById('allon').addEventListener('click', () => { for (const id of DEVICE_IDS) setDevice(id, true); });
 document.getElementById('alloff').addEventListener('click', () => { for (const id of DEVICE_IDS) setDevice(id, false); });
+const fillBtn = document.getElementById('fillbtn');
+fillBtn.addEventListener('click', () => { settings.fill = !settings.fill; saveSettings(settings); resize(); renderUI(); });
 const thBtn = document.getElementById('thunderbtn'), wBtn = document.getElementById('weatherbtn');
 thBtn.addEventListener('click', () => { settings.thunder = !settings.thunder; saveSettings(settings); renderUI(); });
 wBtn.addEventListener('click', () => { settings.weather = !settings.weather; saveSettings(settings); weatherAt = -1e9; drawScreen(true); renderUI(); });
@@ -194,7 +207,7 @@ for (const { id, name } of SOUND_LAYERS) {
 volBtn.addEventListener('click', () => { volPanel.hidden = !volPanel.hidden; volBtn.setAttribute('aria-expanded', String(!volPanel.hidden)); });
 function renderUI() {
   for (const id of DEVICE_IDS) { devBtn[id].classList.toggle('on', settings.devices[id]); devBtn[id].setAttribute('aria-pressed', String(settings.devices[id])); }
-  thBtn.classList.toggle('on', settings.thunder); wBtn.classList.toggle('on', settings.weather);
+  thBtn.classList.toggle('on', settings.thunder); fillBtn.classList.toggle('on', settings.fill); wBtn.classList.toggle('on', settings.weather);
   rainInp.value = Math.round(rainLevel() * 100); radioInp.value = Math.round(settings.radioVol * 100);
   document.querySelector('.radiovol').classList.toggle('collapsed', !settings.devices.radio);
 }
@@ -247,11 +260,11 @@ canvas.addEventListener('wheel', (e) => {
 }, { passive: false });
 
 function resize() {
-  const vw = innerWidth, vh = innerHeight, sc = Math.max(vw / 16, vh / 9); const w = Math.ceil(sc * 16), h = Math.ceil(sc * 9);
+  const vw = innerWidth, vh = innerHeight; const { w, h, left, top } = fitRect(vw, vh, settings.fill ? 'cover' : 'contain');
   const dpr = devicePixelRatio || 1; let bw = Math.round(w * dpr), bh = Math.round(h * dpr); const cap = Math.min(1, 1920 / bw, 1080 / bh);
   bw = Math.round(bw * cap); bh = Math.round(bh * cap); renderer.setSize(bw, bh, false);
   if (LOW) { RW = 480; RH = 270; } else { RW = bw; RH = bh; } rt.setSize(RW, RH);
-  Object.assign(canvas.style, { width: w + 'px', height: h + 'px', left: Math.floor((vw - w) / 2) + 'px', top: Math.floor((vh - h) / 2) + 'px' });
+  Object.assign(canvas.style, { width: w + 'px', height: h + 'px', left: left + 'px', top: top + 'px' });
 }
 addEventListener('resize', resize); resize(); wake(); renderUI(); drawScreen(true);
 
@@ -270,10 +283,12 @@ function frame(now) {
   scrMesh.material.uniforms.uOn.value = dev.laptop.shown;
   if (settings.devices.laptop) { drawScreen(); refreshWeather(clock); }
   const R = rainParams(rainLevel());
-  glassMat.uDrops.value = R.drops; glassMat.uSlide.value = R.slide; glassMat.uStreaks.value = R.streaks;
-  glassMat.uWarm.value = dev.lamp.shown * 0.8 + dev.lantern.shown * 0.2; steamU.uWarm.value = dev.lamp.shown;
-  neonT -= dt; if (neonT <= 0) { neonF = Math.random() < 0.12 ? 0.55 + Math.random() * 0.3 : 1 + (Math.random() - 0.5) * 0.08; neonT = neonF < 0.9 ? 0.05 + Math.random() * 0.1 : 0.3 + Math.random() * 1.5; }
-  glassMat.uNeonF.value += (neonF - glassMat.uNeonF.value) * Math.min(1, dt * 30);
+  rainShown = rainShown ?? rainLevel(); rainShown += (rainLevel() - rainShown) * (1 - Math.exp(-dt * 1.2)); // плавно, как в campfire
+  const RP = rainParams(rainShown);
+  rainU.uRainDen.value = RP.density; rainU.uRainLen.value = RP.length; rainU.uRainSlant.value = RP.slant; rainU.uRainA.value = RP.alpha; rainU.uRainT.value += dt * RP.speed;
+  steamU.uWarm.value = dev.lamp.shown;
+  neonT -= dt; if (neonT <= 0) { neonF = Math.random() < 0.06 ? 0.8 + Math.random() * 0.1 : 1 + (Math.random() - 0.5) * 0.04; neonT = neonF < 0.95 ? 0.12 + Math.random() * 0.15 : 0.8 + Math.random() * 2.5; }
+  glassMat.uNeonF.value += (neonF - glassMat.uNeonF.value) * Math.min(1, dt * 10);
   if (settings.thunder && clock >= nextThunder) { thunder(); nextThunder = clock + R.thunderEvery * (0.5 + Math.random()); }
   let fl = 0; flashes = flashes.filter((f) => clock - f.t < 1); for (const f of flashes) { const k = clock - f.t; if (k >= 0) fl = Math.max(fl, f.a * Math.exp(-k / 0.09)); }
   glassMat.uFlash.value = fl;

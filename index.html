@@ -8,6 +8,7 @@
 <link rel="stylesheet" href="./src/style.css" />
 </head>
 <body>
+<div id="bg"></div>
 <canvas id="c"></canvas>
 <div id="overlay"><div class="hint">Нажмите любую кнопку или коснитесь экрана — включится звук.<br><small>Клик по лампе, фонарю, радио или ноутбуку включает их · колесо над радио — станции, над окном — сила дождя · меню — круглая кнопка справа внизу</small></div></div>
 <div id="toast" class="glass"></div>
@@ -22,6 +23,7 @@
   </div>
   <div class="row">
     <button id="volbtn" type="button" class="icon" aria-expanded="false"><span>Громкость</span></button>
+    <button id="fillbtn" type="button" class="icon" aria-pressed="false"><span class="led"></span><span>Заполнить экран</span></button>
     <button id="mute" type="button" class="icon"><span>Звук</span></button>
     <button id="fs" type="button" class="icon" aria-label="На весь экран"><svg viewBox="0 0 16 16"><path d="M2 6V2h4M10 2h4v4M14 10v4h-4M6 14H2v-4" stroke="currentColor" fill="none" stroke-width="1.6"/></svg></button>
   </div>
