@@ -56,3 +56,42 @@ for i, k in enumerate(['lantern', 'lamp', 'radio', 'laptop']):
 save(glass, 'glass', True); save(neonm, 'neon', True)
 # фон экрана ноутбука (для живых часов)
 print('screen bg', B[700, 1470].astype(int), B[650, 1470].astype(int), B[725, 1590].astype(int))
+
+# ---------- карты влияния света (v2): ON = OFF + Σ share_i·(ON−OFF) ----------
+# Каждый пиксель разницы ON−OFF отдаётся ближайшему/сильнейшему источнику; предметы-источники — жёсткие маски.
+yy, xx = np.mgrid[0:H, 0:W].astype(float)
+diff = B - A; dl = np.clip(diff.mean(2), 0, None)
+cyan = np.clip((B[..., 2] - B[..., 0]) / 120, 0, 1)         # голубизна ON-пикселя (свет ноутбука)
+warm = np.clip((B[..., 0] - B[..., 2]) / 120, 0, 1)
+def fall(cx, cy, r): return 1 / (1 + ((xx - cx) ** 2 + (yy - cy) ** 2) / r ** 2)
+w = {
+  'lamp': 1.0 * fall(1590, 200, 420) * (0.3 + warm),
+  'lantern': 0.8 * np.maximum(fall(62, 372, 260), fall(50, 600, 200)) * (0.3 + warm),
+  'radio': 0.5 * fall(555, 745, 150) * (0.3 + warm),
+  'laptop': 1.2 * fall(1420, 720, 260) * (0.15 + 2 * cyan),
+}
+tot = sum(w.values()) + 1e-6; share = {k: v / tot for k, v in w.items()}
+def hard(poly_or_fn):
+    m = Image.new('L', (W, H), 0); poly_or_fn(ImageDraw.Draw(m)); return np.asarray(m.filter(ImageFilter.GaussianBlur(1.5)), float) / 255
+H_ = {
+  'laptop': hard(lambda d: d.polygon([(1312, 600), (1625, 594), (1622, 800), (1600, 812), (1640, 870), (1215, 875), (1240, 820), (1305, 800)], 255)),
+  'radio': hard(lambda d: (d.rectangle((432, 650, 680, 805), 255), d.line((609, 702, 652, 585), 255, 12), d.ellipse((640, 574, 664, 598), 255))),
+  'lamp': hard(lambda d: d.polygon([(1525, 90), (1600, 70), (1660, 120), (1660, 240), (1520, 240)], 255)),
+  'lantern': hard(lambda d: (d.rectangle((20, 285, 115, 450), 255), d.rectangle((15, 565, 90, 640), 255))),
+}
+for k, m in H_.items():  # предмет-источник: его пиксели только у него (экран ноутбука не светится от лампы)
+    for j in share: share[j] = share[j] * (1 - m) + (m if j == k else 0)
+share = {k: v * (1 - gl) for k, v in share.items()}           # стекло рисует свой шейдер
+rgb = np.dstack([share['lamp'], share['lantern'], share['radio']])
+Image.fromarray((rgb * 255).round().astype(np.uint8)).save('public/layers/masks/light_rgb.png')
+Image.fromarray((share['laptop'] * 255).round().astype(np.uint8)).save('public/layers/masks/light_laptop.png')
+save(on, '06_on')
+for i, k in enumerate(['lantern', 'lamp', 'radio', 'laptop']):  # справочные слои устройств (ON с альфой = доля)
+    save(Image.fromarray(np.dstack([B, share[k] * 255]).astype(np.uint8), 'RGBA'), f'0{i+2}_{k}_on')
+S8 = {k: np.round(v * 255) / 255 for k, v in share.items()}
+allon = A + diff * sum(S8.values())[..., None]
+mask = gl < 0.01
+print('all-on vs ON, mean |diff| (0..255) вне стекла:', round(np.abs(allon - B)[mask].mean(), 2), ' база OFF vs ON:', round(np.abs(A - B)[mask].mean(), 2))
+lamp_on = A + diff * S8['lamp'][..., None]
+scr = (slice(612, 740), slice(1330, 1600))
+print('лампа одна: экран ноутбука, среднее отличие от OFF:', round(np.abs(lamp_on - A)[scr].mean(), 2))

@@ -41,14 +41,16 @@ function fullPlane(frag, uniforms, blending = THREE.NormalBlending) {
   m.position.set(W / 2, H / 2, 0); m.renderOrder = order++; scene.add(m); return m;
 }
 
-// ---------- 1. база (всё выключено) ----------
+// ---------- 1–2. комната: OFF + Σ доля_i·(ON−OFF) — свет каждого прибора по своей карте влияния ----------
+// Карты (masks/light_rgb: r=лампа, g=фонарь+свеча, b=радио; masks/light_laptop) строит tools/make_layers.py;
+// предметы-источники — жёсткие маски, поэтому экран ноутбука светится только от ноутбука. Всё вкл = ON-кадр.
 const baseTex = loadTex(layerPath('01_base'));
-fullPlane(`uniform sampler2D map; uniform float uDim; void main(){ gl_FragColor=vec4(tex(map,world()).rgb*uDim,1.); }`, { map: { value: baseTex }, uDim: { value: 1 } });
-
-// ---------- 2. слои включённых устройств (мягкие маски по области устройства) ----------
-const devFrag = `uniform sampler2D map; uniform float uOn; void main(){ vec4 t=tex(map,world()); float a=t.a*uOn; if(a<.003) discard; gl_FragColor=vec4(t.rgb,a); }`;
-const dev = {};
-for (const id of DEVICE_IDS) dev[id] = { mesh: fullPlane(devFrag, { map: { value: loadTex(layerPath(SCENE.devices[id].layer)) }, uOn: { value: 0 } }), shown: 0, hover: 0 };
+const roomU = fullPlane(`uniform sampler2D map,uOnTex,uShare,uShareL; uniform vec4 uOn; // lamp, lantern, radio, laptop
+  void main(){ vec2 p=world(); vec3 b=tex(map,p).rgb, o=tex(uOnTex,p).rgb; vec3 s=tex(uShare,p).rgb; float sl=tex(uShareL,p).r;
+    float k=clamp(dot(vec4(s,sl),uOn),0.,1.); gl_FragColor=vec4(b+(o-b)*k,1.); }`,
+{ map: { value: baseTex }, uOnTex: { value: loadTex(layerPath('06_on')) }, uShare: { value: loadTex('./layers/masks/light_rgb.png') },
+  uShareL: { value: loadTex('./layers/masks/light_laptop.png') }, uOn: { value: new THREE.Vector4() } }).material.uniforms;
+const dev = {}; for (const id of DEVICE_IDS) dev[id] = { shown: 0, hover: 0 };
 
 // ---------- 3. экран ноутбука: живые часы/дата/погода пиксельным шрифтом ----------
 const S = SCENE.screen;
@@ -97,32 +99,35 @@ const glassMat = fullPlane(`uniform sampler2D uBase,uGlass,uNeon; uniform float 
     float lum=dot(bg,vec3(.3,.5,.2));
     gl_FragColor=vec4(bg+uFlash*(vec3(.30,.34,.48)*.35+bg*1.1+lum*.6),gm);        // молния
   }`, { uBase: { value: baseTex }, uGlass: { value: glassTex }, uNeon: { value: loadTex('./layers/masks/neon.png') }, uFlash: { value: 0 }, uNeonF: { value: 1 } }).material.uniforms;
-// дождь: шейдер из campfire без изменений логики (тонкие пиксельные штрихи, два слоя глубины), плюс маска стекла
-const rainU = { uRain: { value: 1 }, uRainDen: { value: 0.2 }, uRainLen: { value: 1 }, uRainSlant: { value: 0.2 }, uRainA: { value: 1 }, uRainT: { value: 0 }, uGlass: { value: glassTex } };
-const rainFrag = `uniform float uRain,uNear,uRainDen,uRainLen,uRainSlant,uRainA,uRainT; uniform sampler2D uGlass; varying vec2 vUv;
-  float hash(vec2 p){ return fract(sin(dot(p,vec2(127.1,311.7)))*43758.5453); }
+// дождь: тонкие (~1 px) штрихи, у каждой колонки свои случайные скорость, фаза, длина, позиция и прозрачность;
+// колонки независимы (нет пар и решётки), 3 слоя глубины, лёгкий наклон. Только по маске стекла.
+const rainU = { uRainDen: { value: 0.2 }, uRainLen: { value: 1 }, uRainSlant: { value: 0.04 }, uRainA: { value: 1 }, uRainT: { value: 0 }, uGlass: { value: glassTex } };
+const rainFrag = `uniform float uLayer,uRainDen,uRainLen,uRainSlant,uRainA,uRainT; uniform sampler2D uGlass; varying vec2 vUv;
+  float h1(float n){ return fract(sin(n*12.9898+uLayer*78.233)*43758.5453); }
+  float h2(vec2 p){ return fract(sin(dot(p,vec2(127.1,311.7))+uLayer*19.19)*43758.5453); }
   void main(){
     float gm = texture2D(uGlass, vUv).r; if (gm < .01) discard;
     vec2 p = vec2(vUv.x*${W}., (1.-vUv.y)*${H}.);
-    float near = step(.5, uNear);
-    float px = ${PIX.toFixed(4)} * mix(.75, 1., near);
-    p = (floor(p/px)+.5)*px;
-    float x = p.x + p.y*uRainSlant;
-    float c = floor(x/px);
-    float h = hash(vec2(c, uNear));
-    float per = mix(200., 300., near);
-    float len = mix(13., 26., near) * uRainLen;
-    float shift = uRainT * mix(560., 950., near) * (.85+.3*h) - h*per*9.;
-    float yy = p.y - shift;
-    float cyc = floor(yy/per);
-    if (hash(vec2(c*1.7 + cyc*13.1, 3.+uNear)) > uRainDen * mix(1.2, 1., near)) discard;
-    float m = mod(yy, per);
-    if (m > len) discard;
-    float a = mix(.2, .32, near) * uRain * uRainA * (m/len);
-    gl_FragColor = vec4(.72,.78,.9, a*gm);
+    float L = uLayer;                                   // 0 — дальний, 2 — ближний
+    float cw = mix(3., 7., L*.5);                       // ширина колонки (в ней одна тонкая линия)
+    float slant = uRainSlant*(.6+.4*L);
+    float x = p.x + p.y*slant; float c = floor(x/cw); float fx = fract(x/cw);
+    float speed = mix(520., 1100., L*.5) * (.75 + .5*h1(c));
+    float per = mix(260., 520., h1(c+31.7));            // своя «длина цикла» у колонки
+    float yy = p.y - uRainT*speed + h1(c+7.3)*per*13.;
+    float cyc = floor(yy/per); float m = mod(yy, per);
+    if (h2(vec2(c, cyc)) > uRainDen*mix(.9, .55, L*.5)) discard;
+    float len = mix(10., 34., L*.5) * uRainLen * (.6 + .8*h2(vec2(c, cyc+.5)));
+    float start = h2(vec2(c+.3, cyc)) * (per - len);    // капля в случайном месте цикла
+    float k = (m - start)/len; if (k < 0. || k > 1.) discard;
+    float cx = .2 + .6*h2(vec2(c, cyc+1.7));            // позиция линии внутри колонки
+    float d = abs(fx - cx)*cw; float wpx = mix(.5, .9, L*.5);
+    float a = (1. - smoothstep(wpx*.4, wpx, d)) * k * mix(.14, .3, L*.5) * (.5 + .7*h2(vec2(c+.9, cyc))) * uRainA;
+    if (a < .004) discard;
+    gl_FragColor = vec4(.74,.8,.92, a*gm);
   }`;
-for (const near of [0, 1]) {
-  const m = new THREE.Mesh(plane, new THREE.ShaderMaterial({ vertexShader: vert, fragmentShader: rainFrag, transparent: true, depthTest: false, depthWrite: false, uniforms: { ...rainU, uNear: { value: near } } }));
+for (const L of [0, 1, 2]) {
+  const m = new THREE.Mesh(plane, new THREE.ShaderMaterial({ vertexShader: vert, fragmentShader: rainFrag, transparent: true, depthTest: false, depthWrite: false, uniforms: { ...rainU, uLayer: { value: L } } }));
   m.position.set(W / 2, H / 2, 0); m.renderOrder = order++; scene.add(m);
 }
 let rainShown = null;
@@ -276,16 +281,16 @@ function frame(now) {
     const d = dev[id], f = SCENE.devices[id].fade, on = settings.devices[id] ? 1 : 0;
     d.shown += Math.sign(on - d.shown) * Math.min(Math.abs(on - d.shown), dt / f); d.hover += ((hoverId === id ? 1 : 0) - d.hover) * Math.min(1, dt * 8);
     let a = d.shown;
-    if (id === 'lantern') a *= 0.86 + 0.1 * Math.sin(clock * 9.1) * Math.sin(clock * 3.3 + 1) + 0.04 * Math.sin(clock * 23);
+    if (id === 'lantern') a *= 0.95 + 0.04 * Math.sin(clock * 9.1) * Math.sin(clock * 3.3 + 1) + 0.01 * Math.sin(clock * 23); // среднее ≈ ON-кадр
     if (id === 'laptop' && on && d.shown < 1) a *= Math.random() < 0.3 ? 0.4 : 1; // экран «загорается» с миганием
-    d.mesh.material.uniforms.uOn.value = Math.max(a, d.hover * 0.2 * (1 - d.shown));
+    roomU.uOn.value.setComponent(DEVICE_IDS.indexOf(id), Math.max(a, d.hover * 0.2 * (1 - d.shown)));
   }
   scrMesh.material.uniforms.uOn.value = dev.laptop.shown;
   if (settings.devices.laptop) { drawScreen(); refreshWeather(clock); }
   const R = rainParams(rainLevel());
   rainShown = rainShown ?? rainLevel(); rainShown += (rainLevel() - rainShown) * (1 - Math.exp(-dt * 1.2)); // плавно, как в campfire
   const RP = rainParams(rainShown);
-  rainU.uRainDen.value = RP.density; rainU.uRainLen.value = RP.length; rainU.uRainSlant.value = RP.slant; rainU.uRainA.value = RP.alpha; rainU.uRainT.value += dt * RP.speed;
+  rainU.uRainDen.value = RP.density; rainU.uRainLen.value = RP.length; rainU.uRainSlant.value = 0.03 + RP.slant * 0.15; rainU.uRainA.value = RP.alpha; rainU.uRainT.value = (rainU.uRainT.value + dt * RP.speed) % 1800; // ограничиваем фазу — без потери точности float
   steamU.uWarm.value = dev.lamp.shown;
   neonT -= dt; if (neonT <= 0) { neonF = Math.random() < 0.06 ? 0.8 + Math.random() * 0.1 : 1 + (Math.random() - 0.5) * 0.04; neonT = neonF < 0.95 ? 0.12 + Math.random() * 0.15 : 0.8 + Math.random() * 2.5; }
   glassMat.uNeonF.value += (neonF - glassMat.uNeonF.value) * Math.min(1, dt * 10);
