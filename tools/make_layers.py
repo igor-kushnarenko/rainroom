@@ -107,3 +107,14 @@ for nm, (x0, y0, x1, y1) in [('растение', (880, 655, 1068, 832)), ('кр
     cx = (x0 + x1) // 2; L_ = np.abs(lamp_on - A)[y0:y1, x0:cx].mean(); R_ = np.abs(lamp_on - A)[y0:y1, cx:x1].mean()
     print(f'лампа одна: {nm} слева {L_:.1f} / справа {R_:.1f}')
 print('лампа одна: экран ноутбука, среднее отличие от OFF:', round(np.abs(lamp_on - A)[scr].mean(), 2))
+
+# ---------- город (v5): маска окон (r) и красных огней (g) внутри стекла ----------
+lum = A.mean(2); r_, g_, b_ = A[..., 0], A[..., 1], A[..., 2]
+nz = np.asarray(neonm.point(lambda v: 255 if v > 20 else 0).filter(ImageFilter.MinFilter(9)).filter(ImageFilter.MaxFilter(15))) > 0  # только крупные вывески (точки-огни остаются)
+win = (lum > 95) & (r_ > b_ + 10) & (g_ > b_ - 5) & (mx - mn < 110) & g & (yy > 120) & ~nz              # тёплые светящиеся окна
+red = (r_ > 100) & (g_ < 80) & (b_ < 90) & (r_ > g_ * 1.8) & g & (yy < 600)
+for (x0, y0, x1, y1) in [(685, 365, 740, 445), (985, 395, 1045, 475)]: red[y0:y1, x0:x1] = False  # красные вывески — не огни   # красные огоньки на шпилях
+red_m = Image.fromarray((red * 255).astype(np.uint8)).filter(ImageFilter.MaxFilter(3))
+city = np.dstack([win * 255, np.asarray(red_m), np.zeros((H, W))]).astype(np.uint8)
+Image.fromarray(city).save('public/layers/masks/city.png')
+print('окон-пикселей', int(win.sum()), 'красных огней-пикселей', int(red.sum()))

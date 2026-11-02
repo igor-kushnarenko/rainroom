@@ -102,7 +102,8 @@ async function refreshWeather(now) {
 
 // ---------- 4. стекло: неон и молния (только по маске стекла — предметы на подоконнике впереди) ----------
 const glassTex = loadTex('./layers/masks/glass.png');
-const glassMat = fullPlane(`uniform sampler2D uBase,uGlass,uNeon; uniform float uFlash,uNeonF,uRun,uBeads;
+const glassMat = fullPlane(`uniform sampler2D uBase,uGlass,uNeon,uCity; uniform float uFlash,uNeonF,uRun,uBeads;
+  float fbm(vec2 q){ return noise(q)*.55+noise(q*2.03+7.1)*.3+noise(q*4.1+3.3)*.15; }
   const float GT=92., GB=771.;
   // стекающая капля в колонке: у каждой колонки и каждого «захода» свои размер, путь, скорость; движение рывками (задержка-срыв)
   void runner(vec2 p, float cw, float k, inout vec2 off, inout float wet, inout float hi){
@@ -136,11 +137,48 @@ const glassMat = fullPlane(`uniform sampler2D uBase,uGlass,uNeon; uniform float 
     if (hb < uBeads) { vec2 ctr = (cc + .5 + (vec2(hash(cc+1.3), hash(cc+2.9)) - .5)*.7)*cs - vec2(0., 7.)*floor(p.x/17.);
       float life = .5 + .5*sin(uTime*(.05 + .05*hash(cc+4.4)) + hb*40.); float r = (0.7 + 1.8*hash(cc+5.7))*smoothstep(.15, .6, life);
       vec2 d = p - ctr; float dl = length(d); if (dl < r) { off += -d*1.6; hi = max(hi, .5*(1. - dl/r)); } }
-    vec3 bg=tex(uBase,p+off).rgb; float nm=tex(uNeon,p+off).r; bg*=1.+nm*(uNeonF-1.);   // мягкое мерцание неона
+    vec2 cp=p+off; vec3 bg=tex(uBase,cp).rgb; vec4 cm=tex(uCity,cp);
+    // окна домов: кластеры 7x5 px включаются/выключаются медленно и плавно
+    vec2 wc=floor(cp/vec2(7.,5.)); float wh=hash(wc+.7), per=25.+70.*hash(wc+1.9); float tt=uTime/per+wh*9.;
+    float onA=step(.2,hash(wc+floor(tt)*1.37)), onB=step(.2,hash(wc+(floor(tt)-1.)*1.37)); float on=mix(onB,onA,smoothstep(0.,.04,fract(tt)));
+    bg=mix(bg,bg*.22,cm.r*(1.-on));
+    // красные огни на шпилях: мигают, у каждого своя фаза
+    vec2 rc=floor(cp/14.); float ph=fract(uTime*(.45+.2*hash(rc))+hash(rc+3.)); float blink=smoothstep(0.,.08,ph)*(1.-smoothstep(.3,.5,ph));
+    bg*=1.+cm.g*(mix(-.65,.7,blink));
+    // неон: у каждой вывески своё мягкое «дыхание» и редкие короткие провалы
+    // неон: каждая вывеска мягко «дышит» в своём темпе; редкие провалы — общие (uNeonF); только по ядру маски вывесок
+    float nm=smoothstep(.35,.9,tex(uNeon,cp).r); float nh=noise(cp*.012+5.);
+    float nf=uNeonF*(1.+.08*sin(uTime*(.6+1.4*nh)+nh*30.));
+    bg*=1.+nm*(nf-1.);
+    // облака в верхней части неба и туман в низинах — медленный дрейф с параллаксом
+    float sky=smoothstep(430.,140.,p.y);
+    float c1=fbm(p*vec2(.004,.008)+vec2(uTime*.010,0.)), c2=fbm(p*vec2(.007,.012)+vec2(uTime*.018,3.));
+    bg+=vec3(.30,.36,.48)*(smoothstep(.5,.85,c1)*.10+smoothstep(.55,.9,c2)*.07)*sky;
+    float low=smoothstep(470.,690.,p.y); float f1=fbm(p*vec2(.003,.011)+vec2(uTime*.014,1.)), f2=fbm(p*vec2(.006,.02)-vec2(uTime*.022,0.));
+    bg=mix(bg,vec3(.30,.36,.46),(smoothstep(.45,.85,f1)*.16+smoothstep(.55,.9,f2)*.08)*low);
     bg = bg*(1. + wet*.18) + wet*vec3(.02,.03,.04) + hi*vec3(.55,.65,.8)*.3;
     float lum=dot(bg,vec3(.3,.5,.2));
     gl_FragColor=vec4(bg+uFlash*(vec3(.30,.34,.48)*.35+bg*1.1+lum*.6),gm);        // молния
-  }`, { uBase: { value: baseTex }, uGlass: { value: glassTex }, uNeon: { value: loadTex('./layers/masks/neon.png') }, uFlash: { value: 0 }, uNeonF: { value: 1 }, uRun: { value: 0.3 }, uBeads: { value: 0.3 } }).material.uniforms;
+  }`, { uBase: { value: baseTex }, uGlass: { value: glassTex }, uNeon: { value: loadTex('./layers/masks/neon.png') }, uCity: { value: loadTex('./layers/masks/city.png', true) }, uFlash: { value: 0 }, uNeonF: { value: 1 }, uRun: { value: 0.3 }, uBeads: { value: 0.3 } }).material.uniforms;
+// ---------- машины: огоньки по дорогам (SCENE.roads), оба направления; маска стекла ----------
+import { buildPath, pointAt } from './traffic.js';
+const roads = SCENE.roads.map(buildPath); const cars = [];
+for (const [ri, r] of roads.entries()) for (let i = 0; i < r.cars; i++) cars.push({ r: ri, s: Math.random() * r.len, v: (14 + Math.random() * 16) * (i % 2 ? 1 : -1), tw: Math.random() * 6 });
+const carGeo = new THREE.BufferGeometry(); const carPos = new Float32Array(cars.length * 3), carCol = new Float32Array(cars.length * 3);
+carGeo.setAttribute('position', new THREE.BufferAttribute(carPos, 3)); carGeo.setAttribute('aColor', new THREE.BufferAttribute(carCol, 3));
+const carPx = { value: 1 };
+const carPts = new THREE.Points(carGeo, new THREE.ShaderMaterial({ transparent: true, depthTest: false, depthWrite: false, blending: THREE.AdditiveBlending,
+  uniforms: { uGlass: { value: glassTex }, uPx: carPx },
+  vertexShader: `attribute vec3 aColor; varying vec3 vC; varying vec2 vW; uniform float uPx; void main(){ vC=aColor; vW=position.xy; gl_Position=projectionMatrix*modelViewMatrix*vec4(position,1.); gl_PointSize=max(1.5,2.6*uPx); }`,
+  fragmentShader: `uniform sampler2D uGlass; varying vec3 vC; varying vec2 vW; void main(){ float gm=texture2D(uGlass, vec2(vW.x/${W}., vW.y/${H}.)).r; vec2 c=gl_PointCoord*2.-1.; float a=(1.-smoothstep(.2,1.,dot(c,c)))*gm; if(a<.02) discard; gl_FragColor=vec4(vC*a,1.); }` }));
+carPts.frustumCulled = false; carPts.renderOrder = order++; scene.add(carPts);
+function updateCars(dt) {
+  cars.forEach((c, i) => { const r = roads[c.r]; c.s = (c.s + c.v * dt + r.len) % r.len; const [x, y] = pointAt(r, c.s);
+    carPos[i * 3] = x; carPos[i * 3 + 1] = H - y; const k = 0.75 + 0.25 * Math.sin(clock * 3 + c.tw);
+    const col = c.v > 0 ? [1.0, 0.92, 0.8] : [1.0, 0.18, 0.15]; // фары / стоп-сигналы
+    carCol[i * 3] = col[0] * k; carCol[i * 3 + 1] = col[1] * k; carCol[i * 3 + 2] = col[2] * k; });
+  carGeo.attributes.position.needsUpdate = true; carGeo.attributes.aColor.needsUpdate = true;
+}
 // дождь: тонкие (~1 px) штрихи, у каждой колонки свои случайные скорость, фаза, длина, позиция и прозрачность;
 // колонки независимы (нет пар и решётки), 3 слоя глубины, лёгкий наклон. Только по маске стекла.
 const rainU = { uRainDen: { value: 0.2 }, uRainLen: { value: 1 }, uRainSlant: { value: 0.04 }, uRainA: { value: 1 }, uRainT: { value: 0 }, uGlass: { value: glassTex } };
@@ -177,12 +215,14 @@ let rainShown = null;
 // ---------- 5. пар над кружкой ----------
 const [sx0, sy0] = SCENE.steam;
 const steamU = fullPlane(`uniform vec2 uMug; uniform float uWarm;
-  void main(){ vec2 p=world(); vec2 q=(floor(p/PIX)+.5)*PIX; vec2 l=q-uMug; float up=-l.y/200.;
-    if(up<0.||up>1.||abs(l.x)>70.) discard;
-    float x=l.x+sin(up*6.-uTime*1.1)*9.*up+(noise(vec2(up*3.-uTime*.35,1.7))-.5)*26.*up;
-    float n=noise(vec2(x*.07,l.y*.045+uTime*.8)); float w=7.+26.*up;
-    float a=smoothstep(w,0.,abs(x))*smoothstep(0.,.07,up)*(1.-up)*smoothstep(.3,.75,n)*.32;
-    if(a<.01) discard; gl_FragColor=vec4(mix(vec3(.72,.8,.92),vec3(1.,.82,.62),uWarm*.6),a); }`,
+  float plume(vec2 l, float seed, float drift){ float up=-l.y/260.; if(up<0.||up>1.) return 0.;
+    float x=l.x-drift*up*up-up*18.+sin(up*5.-uTime*(.9+seed*.3)+seed*4.)*12.*up+(noise(vec2(up*3.-uTime*.3,seed*7.))-.5)*34.*up;
+    float n=noise(vec2(x*.06+seed*9.,l.y*.04+uTime*.7)); float n2=noise(vec2(x*.13,l.y*.09+uTime*1.1+seed));
+    float w=10.+34.*up; return smoothstep(w,0.,abs(x))*smoothstep(0.,.06,up)*(1.-up)*smoothstep(.2,.7,n*.7+n2*.3); }
+  void main(){ vec2 p=world(); vec2 l=p-uMug; if(l.x<-60.||l.x>160.||l.y>8.) discard;
+    // дрейф вправо — туда, где пар нарисован в арте
+    float a=(plume(l,0.,70.)*.55+plume(l-vec2(14.,0.),1.,95.)*.4+plume(l+vec2(16.,0.),2.,50.)*.3)*.75;
+    if(a<.01) discard; gl_FragColor=vec4(mix(vec3(.74,.8,.9),vec3(1.,.84,.66),uWarm*.6),min(a,.6)); }`,
 { uMug: { value: new THREE.Vector2(sx0, sy0) }, uWarm: { value: 0 } }).material.uniforms;
 
 // ---------- пост-проход: буфер → экран ближайшим соседом + лёгкая виньетка ----------
@@ -310,15 +350,16 @@ function resize() {
   const vw = innerWidth, vh = innerHeight; const { w, h, left, top } = fitRect(vw, vh, settings.fill ? 'cover' : 'contain');
   const dpr = devicePixelRatio || 1; let bw = Math.round(w * dpr), bh = Math.round(h * dpr); const cap = Math.min(1, 1920 / bw, 1080 / bh);
   bw = Math.round(bw * cap); bh = Math.round(bh * cap); renderer.setSize(bw, bh, false);
-  if (LOW) { RW = 480; RH = 270; } else { RW = bw; RH = bh; } rt.setSize(RW, RH);
+  if (LOW) { RW = 480; RH = 270; } else { RW = bw; RH = bh; } rt.setSize(RW, RH); carPx.value = RW / (W - 2 * CROP_X);
   Object.assign(canvas.style, { width: w + 'px', height: h + 'px', left: left + 'px', top: top + 'px' });
 }
 addEventListener('resize', resize); resize(); wake(); renderUI(); drawScreen(true);
 
 // ---------- цикл ----------
+let fpsN = 0, fpsT = 0, fps = 0;
 let last = performance.now(), neonF = 1, neonT = 0;
 function frame(now) {
-  const dt = Math.min(0.1, (now - last) / 1000); last = now; clock += dt; shared.uTime.value = clock;
+  const dt = Math.min(0.1, (now - last) / 1000); fpsN++; fpsT += (now - last) / 1000; if (fpsT > 2) { fps = fpsN / fpsT; fpsN = 0; fpsT = 0; } last = now; clock += dt; shared.uTime.value = clock;
   for (const id of DEVICE_IDS) { // плавное вкл/выкл + лёгкая подсветка при наведении
     const d = dev[id], f = SCENE.devices[id].fade, on = settings.devices[id] ? 1 : 0;
     d.shown += Math.sign(on - d.shown) * Math.min(Math.abs(on - d.shown), dt / f); d.hover += ((hoverId === id ? 1 : 0) - d.hover) * Math.min(1, dt * 8);
@@ -339,9 +380,9 @@ function frame(now) {
   if (settings.thunder && clock >= nextThunder) { thunder(); nextThunder = clock + R.thunderEvery * (0.5 + Math.random()); }
   let fl = 0; flashes = flashes.filter((f) => clock - f.t < 1); for (const f of flashes) { const k = clock - f.t; if (k >= 0) fl = Math.max(fl, f.a * Math.exp(-k / 0.09)); }
   glassMat.uFlash.value = fl;
-  tuner.update(dt);
+  updateCars(dt); tuner.update(dt);
   renderer.setRenderTarget(rt); renderer.render(scene, cam); renderer.setRenderTarget(null); renderer.render(postScene, postCam);
   requestAnimationFrame(frame);
 }
 requestAnimationFrame(frame);
-window.__rainroom = { audio, tuner, thunder, setDevice, state: () => ({ devices: { ...settings.devices }, shown: Object.fromEntries(DEVICE_IDS.map((id) => [id, +dev[id].shown.toFixed(2)])), rainLevel: rainLevel(), weather, flash: glassMat.uFlash.value, tuner: { state: tuner.state, name: tuner.cur()?.name } }) };
+window.__rainroom = { audio, tuner, thunder, setDevice, fps: () => fps, state: () => ({ devices: { ...settings.devices }, shown: Object.fromEntries(DEVICE_IDS.map((id) => [id, +dev[id].shown.toFixed(2)])), rainLevel: rainLevel(), weather, flash: glassMat.uFlash.value, tuner: { state: tuner.state, name: tuner.cur()?.name } }) };

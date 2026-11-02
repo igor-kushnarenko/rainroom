@@ -37,3 +37,10 @@ test('fitRect: contain показывает весь кадр, cover запол�
 });
 test('запасная погода wttr.in', () => { assert.deepEqual(parseWttr({ current_condition: [{ temp_C: '9', weatherCode: '296' }] }), { temp: '+9°C', label: 'дождь', icon: 'rain' });
   assert.equal(parseWttr({}), null); assert.match(wttrUrl({ city: 'Анапа' }), /^https:\/\/wttr\.in\/Anapa/); });
+import { buildPath, pointAt } from '../src/traffic.js';
+test('дороги: внутри стекла, точки на пути, зацикливание в обе стороны', () => {
+  const [gx0, gy0, gx1, gy1] = SCENE.glass;
+  for (const r of SCENE.roads) for (const [x, y] of r.pts) assert.ok(x > gx0 && x < gx1 && y > gy0 && y < gy1);
+  const p = buildPath({ pts: [[0, 0], [10, 0], [10, 10]] }); assert.equal(p.len, 20);
+  assert.deepEqual(pointAt(p, 5), [5, 0]); assert.deepEqual(pointAt(p, 15), [10, 5]); assert.deepEqual(pointAt(p, -5), [10, 5]); assert.deepEqual(pointAt(p, 25), [5, 0]);
+});
